@@ -1,13 +1,13 @@
 const panel=document.querySelector('section'), statusLine=document.querySelector('[role=status]'), dialog=document.querySelector('dialog');
 let m,t,picks,origin,revision=0;
 function emit(event,detail={}) {
-  if(origin) parent.postMessage({type:'GAME_EVENT',archetype:'orbit',event,detail},origin);
+  if(origin) parent.postMessage({type:'GAME_EVENT',archetype:'audit',event,detail},origin);
 }
 function button(parent,label,action) {
   const b=document.createElement('button');
   b.textContent=label; b.onclick=action; parent.append(b); return b;
 }
-function choices() { return [...GameLogic.makePool(m).initial,...GameLogic.makePool(m).extra].map(row => t.options[row.label==='a'?0:1]+' · '+Object.entries(row.item).map(([k,v])=>t.featureLabels[k]+' '+t.featureLabels[v]).join(', ')); }
+function choices() { return t.options; }
 function tutorial() {
   dialog.replaceChildren();
   const prompt=document.createElement('p'); prompt.textContent=t.tutorial+' '+t.practice; dialog.append(prompt);
@@ -17,17 +17,17 @@ function tutorial() {
 }
 function render() {
   panel.replaceChildren();
-  const description=document.createElement('p'); description.textContent=t.setting; panel.append(description);
+  const description=document.createElement('p'); description.textContent=t.setting+' · '+t.claims[Math.min(picks.length,m.answers.length-1)]; panel.append(description);
+  if(picks.length) description.textContent+=' · '+picks.map((v,i)=>t.claims[i]+' → '+t.options[v]).join(' | ');
   choices().forEach((label,i)=>{
     const b=button(panel,label,()=>{
-      picks=picks.includes(i)?picks.filter(n=>n!==i):[...picks,i];
+      if(picks.length===m.answers.length) picks=[]; picks.push(i);
       emit('action',{kind:'select',index:i}); render();
     });
-    b.setAttribute('aria-pressed',String(picks.includes(i)));
+    b.setAttribute('aria-pressed','false');
   });
   button(panel,t.check,()=>{
-    let won=false;
-    won=evaluateSelection(m,picks);
+    const won=evaluateSelection(m,picks);
     emit('action',{kind:'submit',picks:[...picks]});
     statusLine.textContent=won?t.success:t.failure; emit(won?'win':'fail');
     if(won){panel.replaceChildren(); button(panel,t.again,()=>start(false));}
@@ -42,7 +42,7 @@ function start(showGuide) {
   if(showGuide) tutorial();
 }
 function load(config) {
-  if(config.archetype!=='orbit') throw Error('Wrong archetype');
+  if(config.archetype!=='audit') throw Error('Wrong archetype');
   m=config.mechanics;t=config.theme;start(true);
 }
 window.addEventListener('message',e=>{
@@ -50,4 +50,5 @@ window.addEventListener('message',e=>{
   if(origin && origin!==e.origin) return;
   origin=e.origin; revision++; load(e.data.config);
 });
-fetch('default.json').then(r=>r.json()).then(c=>{if(!revision) load(c);});
+const configPath = new URLSearchParams(window.location.search).get('config') || 'default.json';
+fetch(configPath).then(r=>r.json()).then(c=>{if(!revision) load(c);});

@@ -1,18 +1,24 @@
 import copy
+from io import BytesIO
 import json
+from pathlib import Path
 import subprocess
 import sys
 from unittest.mock import Mock
+from urllib.error import HTTPError
 
 import pytest
 
-from generator.generate import ARCHETYPES, GAMES, generate
-from generator.llm_client import APIError
+from generator.generate import ARCHETYPES, generate
+from generator.llm_client import APIError, LLMClient
 from generator.metrics import summarize
 
 
+ARCADE = Path(__file__).resolve().parents[2] / "arcade"
+
+
 def default(game):
-    return json.loads((GAMES / game / "source/default.json").read_text())
+    return json.loads((ARCADE / game / "source/default.json").read_text())
 
 
 def run(tmp_path, responses, game="Orbit-Patrol", level=1, previous=None):
@@ -26,7 +32,11 @@ def run(tmp_path, responses, game="Orbit-Patrol", level=1, previous=None):
 @pytest.mark.parametrize("game", ARCHETYPES)
 def test_first_pass(tmp_path, game):
     cfg = default(game)
-    path, record, _ = run(tmp_path, ["```json\n" + json.dumps(cfg) + "\n```"], game)
+    path, record, client = run(tmp_path, ["```json\n" + json.dumps(cfg) + "\n```"], game)
+    prompt = json.loads(client.complete.call_args.args[0][1]["content"])
+    for name in ("config_schema", "default", "levels"):
+        fixture = ARCADE / game / "source" / f"{name}.json"
+        assert prompt[name] == json.loads(fixture.read_text())
     assert json.loads(path.read_text()) == cfg
     assert record["passed"] and record["first_pass_success"]
     assert record["attempts"] == 1
@@ -50,6 +60,7 @@ def test_retry_cap(tmp_path):
     assert path is None and not row["passed"] and not row["first_pass_success"]
     assert row["attempts"] == client.complete.call_count == 3
     assert row["failure_categories"] == ["json_parse_error","api_error","schema_validation_error"]
+    assert row["api_errors"] == [{"attempt": 2, "message": "offline"}]
     assert not (tmp_path / "generated").exists()
 
 
@@ -88,3 +99,30 @@ def test_orbit_advanced_tiers(tmp_path, level, size, bias, count):
     m["curveballs"] = [dict(template,id=str(i),item=dict(template["item"],size="small")) for i in range(count)]
     path, row, _ = run(tmp_path, [json.dumps(cfg)], level=level)
     assert path and row["passed"]
+
+@pytest.mark.parametrize("base", [None, "http://localhost:3001", "http://localhost:3001/",
+                                  "http://localhost:3001/v1", "http://localhost:3001/v1///"])
+def test_gateway_request(monkeypatch, base):
+    if base is None:
+        monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    else:
+        monkeypatch.setenv("LLM_BASE_URL", base)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    response = BytesIO(b'{"choices":[{"message":{"content":"ok"}}]}')
+    send = Mock(return_value=response)
+    monkeypatch.setattr("generator.llm_client.urlopen", send)
+    assert LLMClient().complete([]) == "ok"
+    request = send.call_args.args[0]
+    assert request.full_url == "http://localhost:3001/v1/chat/completions"
+    assert request.get_header("Authorization") == "Bearer test-key"
+    assert request.get_header("User-agent") == "ur2phd-generator/1.0"
+    assert json.loads(request.data)["model"] == "auto"
+
+
+def test_gateway_error_body(monkeypatch):
+    error = HTTPError("http://localhost:3001/v1/chat/completions", 502, "Bad Gateway",
+                      {}, BytesIO(b"  provider unavailable\xff  "))
+    monkeypatch.setattr("generator.llm_client.urlopen", Mock(side_effect=error))
+    with pytest.raises(APIError, match="HTTP 502.*provider unavailable�$"):
+        LLMClient().complete([])

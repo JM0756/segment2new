@@ -21,12 +21,18 @@ def reject_constant(value):
 
 class LLMClient:
     def __init__(self):
-        self.base = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1").rstrip("/")
-        self.model = os.getenv("LLM_MODEL", "qwen2.5:7b")
+        base = os.getenv("LLM_BASE_URL", "http://localhost:3001/v1").rstrip("/")
+        if not base.endswith("/v1"):
+            base += "/v1"
+        self.base = base
+        self.model = os.getenv("LLM_MODEL", "auto")
         self.key = os.getenv("LLM_API_KEY")
 
     def complete(self, messages):
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "ur2phd-generator/1.0",
+        }
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"
         payload = {"model": self.model, "messages": messages, "stream": False}
@@ -38,6 +44,10 @@ class LLMClient:
                 raise ValueError("Expected a string in message.content")
             return result
         except HTTPError as error:
-            raise APIError(f"Chat endpoint returned HTTP {error.code}: {error.reason}") from error
+            detail = error.read().decode("utf-8", errors="replace").strip()
+            msg = f"Chat endpoint returned HTTP {error.code}: {error.reason}"
+            if detail:
+                msg += f" - {detail}"
+            raise APIError(msg) from error
         except (URLError, OSError, ValueError, KeyError, IndexError, TypeError) as error:
             raise APIError(str(error)) from error

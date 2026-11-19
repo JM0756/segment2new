@@ -49,4 +49,5 @@ window.addEventListener('message',e=>{
   if(origin && origin!==e.origin) return;
   origin=e.origin; revision++; load(e.data.config);
 });
-fetch('default.json').then(r=>r.json()).then(c=>{if(!revision) load(c);});
+const configPath = new URLSearchParams(window.location.search).get('config') || 'default.json';
+fetch(configPath).then(r=>r.json()).then(c=>{if(!revision) load(c);});

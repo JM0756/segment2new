@@ -29,8 +29,7 @@ def build_messages(source, archetype, topic, theme, level, previous):
               "constraints": [TIERS[level], knobs]}
     for name in ("config_schema", "default", "levels"):
         path = source / (name + ".json")
-        if path.exists():
-            inputs[name] = json.loads(path.read_text())
+        inputs[name] = json.loads(path.read_text())
     inputs["evaluation_rules"] = {
         "Orbit-Patrol": "One true and one spurious binary feature. Add one noise feature at higher levels. Supply featureLabels for every feature name and value. Curveballs must specify all features.",
         "Alert-Dial": "A winning cutoff flags at least minHits records, all positive.",

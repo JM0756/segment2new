@@ -8,7 +8,7 @@ Listen before setting the iframe URL. Send the complete validated JSON object af
 
 ```js
 const frame = document.querySelector('iframe');
-const url = new URL('/Orbit-Patrol/source/index.html', location.origin);
+const url = new URL('/arcade/Orbit-Patrol/source/index.html', location.origin);
 window.addEventListener('message', ({source, origin, data}) => {
   if (source === frame.contentWindow && origin === url.origin && data?.type === 'GAME_EVENT') {
     console.log(data.archetype, data.event, data.detail);

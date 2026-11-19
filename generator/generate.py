@@ -18,7 +18,7 @@ else:
     from prompts import KNOBS, ORBIT, PROMPT_VERSION, build_messages
 
 ROOT = Path(__file__).resolve().parents[1]
-GAMES = ROOT / "segment2new"
+GAMES = ROOT / "arcade"
 LOG = ROOT / "generator/logs/generation_logs.jsonl"
 ARCHETYPES = ("Orbit-Patrol", *KNOBS)
 
@@ -105,22 +105,28 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     timestamp = datetime.now(timezone.utc).isoformat()
     common = dict(archetype=archetype, topic=topic, theme=theme, level=level, model=client.model,
                   prompt_version=PROMPT_VERSION, timestamp=timestamp)
+    action = "Regenerating" if previous else "Generating"
+    print(f"{action} Level {level} for {archetype}", flush=True)
     messages = build_messages(source, archetype, topic, theme, level,
                               json.loads(previous.read_text()) if previous else None)
     failures = []
+    api_errors = []
     output = None
     for attempt in range(1, 4):
+        print(f"Level {level}, attempt {attempt}/3: waiting for {client.model}", flush=True)
         try:
             response = client.complete(messages)
             messages.append({"role": "assistant", "content": response})
             config = parse_config(response)
         except APIError as exc:
             category, error = "api_error", str(exc)
+            api_errors.append({"attempt": attempt, "message": error})
         except ValueError as exc:
             category, error = "json_parse_error", str(exc)
         else:
             error = validate(source, archetype, config, level)
             if error is None:
+                print(f"Level {level} validation passed", flush=True)
                 slug = re.sub(r"[^a-z0-9]+", "-", f"{topic}-{theme}".lower()).strip("-")[:70] or "activity"
                 # Keep each pair together without overwriting earlier research runs.
                 stem = previous.stem.rsplit("_L", 1)[0] if previous else f"{slug}-{run_id}"
@@ -131,7 +137,9 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     meta["source_level1_file"] = str(previous.relative_to(root))
                 for path, data in [(output.with_suffix(".meta.json"), meta), (output, config)]:
                     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+                    print(f"Saved {path}", flush=True)
                 break
+            print(f"Level {level} validation failed", flush=True)
             category = "schema_validation_error"
         failures.append(category)
         print(f"Attempt {attempt}: {category}: {error}", file=sys.stderr)
@@ -139,6 +147,8 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     record = dict(common, run_id=run_id, is_regeneration=previous is not None, attempts=attempt,
                   passed=output is not None, first_pass_success=output is not None and attempt == 1,
                   failure_categories=failures, latency_ms=round((monotonic()-started)*1000))
+    if api_errors:
+        record["api_errors"] = api_errors
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a", encoding="utf8") as stream:
         stream.write(json.dumps(record) + "\n")
@@ -158,12 +168,8 @@ def main():
     client = LLMClient()
     inputs = client, args.archetype, args.topic, args.theme
     path = generate(*inputs, args.level)
-    if path:
-        print(path)
-        if args.regenerate_level:
-            path = generate(*inputs, 2, previous=path)
-            if path:
-                print(path)
+    if path and args.regenerate_level:
+        path = generate(*inputs, 2, previous=path)
     return 0 if path else 1
 
 
