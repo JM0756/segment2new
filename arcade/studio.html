@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI Literacy Studio</title><style>*{box-sizing:border-box}body{margin:0;background:#fafaf6;color:#192c2b;font:16px system-ui}header{padding:12px 3vw;display:flex;flex-wrap:wrap;align-items:center;gap:12px}select,input,button{font:inherit;padding:8px;border:1px solid #839592;border-radius:6px}form{display:flex;flex:1;gap:6px}input{width:100%;min-width:180px}iframe{width:100%;height:80vh;border:0}#reply{margin:0 3vw 10px;font-size:14px}</style><header><label>Game <select id="game"></select></label><form id="chat"><input id="prompt" aria-label="Theme request" placeholder="Try a forest with a fox and a violet palette"><button>Apply</button></form></header><p id="reply" role="status"></p><iframe id="player" title="Game preview"></iframe><script>/*TEMPLATES*/
+/*THEMES*/
+const titles={dock:'Orbit Patrol',neighbors:'Neighborhood Vote',threshold:'Alert Dial',retrieval:'Search Desk',reward:'Reward Workshop',audit:'Claim Inspector'};
+const game=document.getElementById('game');
+for(const [id,title] of Object.entries(titles))game.add(new Option(title,id));
+function launch(){const id=game.value;player.onload=()=>paint(player.contentDocument);let html=templates.dock;if(id!=='dock')html=templates.arcade.replace('};home();','};start(games.find(g=>g.id==='+JSON.stringify(id)+'));').replace('<nav id="nav">','<nav hidden id="nav">');player.srcdoc=html}
+game.onchange=launch;launch();
+const aliases={purple:'violet',green:'mint',orange:'amber',underwater:'ocean',woodland:'forest',urban:'city',cosmic:'space',robots:'robot',cats:'cat',foxes:'fox'};
+document.getElementById('chat').onsubmit=e=>{
+ e.preventDefault();const patch={};
+ for(const word of document.getElementById('prompt').value.toLowerCase().match(/[a-z]+/g)||[]){
+ const term=aliases[word]||word;for(const [k,v] of Object.entries(catalog))if(Object.hasOwn(v,term))patch[k]=term}
+ const reply=document.getElementById('reply');
+ if(Object.keys(patch).length){applyGameTheme(patch);reply.textContent='Applied '+Object.values(patch).join(', ')+'.'}
+ else reply.textContent='Available choices: '+Object.values(window.getGameThemeOptions()).map(v=>v.join(', ')).join(' / ')+'.';
+};
+</script></html>
