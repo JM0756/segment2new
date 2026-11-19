@@ -234,7 +234,10 @@
             "color",
             "shape"
           ],
-          "additionalProperties": false
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "required": [

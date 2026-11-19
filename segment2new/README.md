@@ -1,28 +1,33 @@
-# Standalone AI literacy games
+# AI literacy activity generator
 
-Serve the repository over HTTP (for local development, run `python3 -m http.server 8000`). Each folder's `source/index.html` is an independent iframe entry point. Opening it directly over HTTP starts its default round.
+Run these commands from the Git repository root. The Python CLI generates JSON activities for the six standalone games in [segment2new](segment2new/README.md). Each game still runs independently. The generator requires Python 3.9+ and an OpenAI-compatible chat completions endpoint.
 
-## Embed
+## Set up
 
-Listen before setting the iframe URL. Send the complete validated JSON object after the iframe loads. Use the actual game origin, including its port. The parent must have a regular HTTP(S) origin.
-
-```js
-const frame = document.querySelector('iframe');
-const url = new URL('/Orbit-Patrol/source/index.html', location.origin);
-window.addEventListener('message', ({source, origin, data}) => {
-  if (source === frame.contentWindow && origin === url.origin && data?.type === 'GAME_EVENT') {
-    console.log(data.archetype, data.event, data.detail);
-  }
-});
-frame.addEventListener('load', async () => {
-  const config = await fetch(new URL('fallout.json', url)).then(r => r.json());
-  frame.contentWindow.postMessage({type: 'LOAD_CONFIG', config}, url.origin);
-});
-frame.src = url;
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r generator/requirements.txt
 ```
 
-Each load starts a fresh round and opens the skippable practice overlay. Events are start, action (select or submit), fail (retry available), win, and hint_shown. Selection indices are zero-based. Replay emits another start. The Orbit Patrol fallout.json and party.json files use identical mechanics.
+For local generation, start Ollama (or run `ollama serve` in another terminal) and run `ollama pull qwen2.5:7b` once. The defaults are `http://localhost:11434/v1` and `qwen2.5:7b`. For a hosted endpoint, export its API base including any version prefix as `LLM_BASE_URL`, its model ID as `LLM_MODEL`, and its key as `LLM_API_KEY`.
 
-## Validation
+## Generate
 
-Validate host-generated configs before sending them. Each source folder contains a Draft 2020-12 schema and Python CLI. Install jsonschema, then run `python validate.py default.json` and `node --test tests/*.js` inside the folder. Orbit Patrol also supports its earlier Python validation suite via `python -m unittest discover -s tests`. Its example1.json and example2.json are legacy validation fixtures. Use default.json, fallout.json or party.json for embedding.
+```sh
+python generator/generate.py --archetype Orbit-Patrol --topic "Overfitting" --theme "Nuclear Fallout: Humans vs. Zombies" --level 1
+python generator/generate.py --topic "Overfitting" --theme "Nuclear Fallout: Humans vs. Zombies" --level 1 --regenerate-level 2
+```
+
+Orbit-Patrol is the default. Other choices are Alert-Dial, Claim-Inspector, Neighborhood-Vote, Reward-Workshop, and Search-Desk. Levels 1, 2, and 3 target Literacy, Fluency, and Competency. The generator defines Level 3 constraints where the game only supplies earlier tiers.
+
+Each accepted activity prints its path under `generated/<archetype>/`. Send the JSON object to the game's iframe using `LOAD_CONFIG`. The adjacent `.meta.json` records provenance. Each pair shares a unique filename stem. The second prompt includes the accepted Level 1 config. After three failed attempts the command exits with status 1 and retains any accepted first level.
+
+## Test and report
+
+```sh
+python -m pytest -q generator/tests
+python generator/metrics.py
+```
+
+Tests use mock model responses and the real game validators. Each requested level that starts generation appends one row to `generator/logs/generation_logs.jsonl`. First-pass and eventual schema conformance rates use all runs as the denominator. A conforming run produced an accepted config within three attempts. Mean and max attempts use successful runs. Regeneration rate uses attempted Level 2 regenerations. Failure counts include every failed attempt. Empty denominators display N/A. Use `python generator/metrics.py --log PATH` to analyze another JSONL file.
