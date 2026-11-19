@@ -1,0 +1,49 @@
+{
+  "1": {
+    "label": "literacy",
+    "n_features": [
+      2,
+      2
+    ],
+    "pool_size": [
+      6,
+      6
+    ],
+    "bias_strength": [
+      1,
+      1
+    ],
+    "curveballs": [
+      1,
+      1
+    ],
+    "show_confidence_meter": false,
+    "show_vocab_terms": false,
+    "hint_style": "direct: names the feature the model latched onto and what to add",
+    "est_minutes": "3-5"
+  },
+  "2": {
+    "label": "fluency",
+    "n_features": [
+      3,
+      3
+    ],
+    "pool_size": [
+      8,
+      10
+    ],
+    "bias_strength": [
+      0.75,
+      0.9
+    ],
+    "curveballs": [
+      3,
+      3
+    ],
+    "show_confidence_meter": true,
+    "show_vocab_terms": true,
+    "hint_style": "guiding: points at the pattern in the learner's data, does not name the fix",
+    "est_minutes": "5-8"
+  },
+  "_note": "PROVISIONAL. Replace the descriptions with 3a's literacy/fluency definitions once received. These bounds are enforced in code (cross-field rules JSON Schema can't express) and double as checklist item 7: config values must match what's on screen."
+}
