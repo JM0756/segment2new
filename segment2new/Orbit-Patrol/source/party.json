@@ -1,0 +1,70 @@
+{
+  "archetype": "orbit",
+  "mechanics": {
+    "features": [
+      {
+        "name": "color",
+        "values": [
+          "green",
+          "red"
+        ],
+        "role": "spurious"
+      },
+      {
+        "name": "shape",
+        "values": [
+          "round",
+          "spiky"
+        ],
+        "role": "true"
+      }
+    ],
+    "training_pool": {
+      "size": 6,
+      "bias_strength": 1
+    },
+    "class_rule": {
+      "feature": "shape",
+      "class_a_value": "round",
+      "class_b_value": "spiky"
+    },
+    "curveballs": [
+      {
+        "id": "cb1",
+        "item": {
+          "color": "green",
+          "shape": "spiky"
+        },
+        "expected_model_failure": true
+      }
+    ]
+  },
+  "theme": {
+    "title": "College frat party",
+    "setting": "College frat party",
+    "accent": "#843c78",
+    "tutorial": "At the College frat party, select labeled examples from both groups and test your model. Add conflicting examples if it learns a shortcut.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "Compare Shirt and Wristband across the two groups.",
+    "options": [
+      "Guest",
+      "Organizer"
+    ],
+    "featureLabels": {
+      "green": "Gold",
+      "red": "Blue",
+      "round": "Paper",
+      "spiky": "Fabric",
+      "color": "Shirt",
+      "shape": "Wristband"
+    }
+  }
+}

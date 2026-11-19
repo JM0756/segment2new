@@ -1,0 +1,31 @@
+{
+  "archetype": "retrieval",
+  "mechanics": {
+    "order": [
+      0,
+      2
+    ]
+  },
+  "theme": {
+    "title": "Search Desk",
+    "setting": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second.",
+    "accent": "#365da3",
+    "tutorial": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second.",
+    "options": [
+      "Course calendar \u2014 Final project due Friday at noon.",
+      "Project gallery \u2014 See examples from last year.",
+      "Submission guide \u2014 Upload the report through the course portal.",
+      "Welcome note \u2014 This course has a final project."
+    ]
+  }
+}

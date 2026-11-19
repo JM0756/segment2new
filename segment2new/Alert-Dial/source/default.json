@@ -1,0 +1,61 @@
+{
+  "archetype": "threshold",
+  "mechanics": {
+    "records": [
+      [
+        20,
+        0
+      ],
+      [
+        40,
+        1
+      ],
+      [
+        55,
+        0
+      ],
+      [
+        70,
+        1
+      ],
+      [
+        90,
+        1
+      ]
+    ],
+    "cutoffs": [
+      0,
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+      80,
+      90,
+      100
+    ],
+    "minHits": 2
+  },
+  "theme": {
+    "title": "Alert Dial",
+    "setting": "Choose a score cutoff for a spam filter. Block at least two spam messages while blocking zero real messages. Higher scores indicate more suspected spam.",
+    "accent": "#365da3",
+    "tutorial": "Choose a score cutoff for a spam filter. Block at least two spam messages while blocking zero real messages. Higher scores indicate more suspected spam.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "Choose a score cutoff for a spam filter. Block at least two spam messages while blocking zero real messages. Higher scores indicate more suspected spam.",
+    "options": [
+      "Real",
+      "Spam"
+    ]
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "type": "object",
+  "properties": {
+    "archetype": {
+      "const": "threshold"
+    },
+    "mechanics": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 1
+        },
+        "cutoffs": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1
+        },
+        "minHits": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "cutoffs",
+        "minHits"
+      ],
+      "additionalProperties": false
+    },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "setting": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tutorial": {
+          "type": "string",
+          "minLength": 1
+        },
+        "practice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "begin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skip": {
+          "type": "string",
+          "minLength": 1
+        },
+        "guide": {
+          "type": "string",
+          "minLength": 1
+        },
+        "check": {
+          "type": "string",
+          "minLength": 1
+        },
+        "again": {
+          "type": "string",
+          "minLength": 1
+        },
+        "success": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hintLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "title",
+        "setting",
+        "accent",
+        "tutorial",
+        "practice",
+        "begin",
+        "skip",
+        "guide",
+        "check",
+        "again",
+        "success",
+        "failure",
+        "hintLabel",
+        "hint",
+        "options"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "archetype",
+    "mechanics",
+    "theme"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,42 @@
+{
+  "archetype": "neighbors",
+  "mechanics": {
+    "target": 6,
+    "positions": [
+      1,
+      4,
+      5,
+      7,
+      10
+    ],
+    "classes": [
+      "A",
+      "B",
+      "A",
+      "B",
+      "A"
+    ],
+    "k": 3
+  },
+  "theme": {
+    "title": "Neighborhood Vote",
+    "setting": "Target reading",
+    "accent": "#365da3",
+    "tutorial": "A sensor reading lands on the number line. Select the three closest labeled samples to see how a nearest-neighbor classifier predicts its label.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "A sensor reading lands on the number line. Select the three closest labeled samples to see how a nearest-neighbor classifier predicts its label.",
+    "classLabels": {
+      "A": "A",
+      "B": "B"
+    },
+    "prediction": "Majority vote:"
+  }
+}

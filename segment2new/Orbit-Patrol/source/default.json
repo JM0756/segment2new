@@ -1,0 +1,70 @@
+{
+  "archetype": "orbit",
+  "mechanics": {
+    "features": [
+      {
+        "name": "color",
+        "values": [
+          "green",
+          "red"
+        ],
+        "role": "spurious"
+      },
+      {
+        "name": "shape",
+        "values": [
+          "round",
+          "spiky"
+        ],
+        "role": "true"
+      }
+    ],
+    "training_pool": {
+      "size": 6,
+      "bias_strength": 1
+    },
+    "class_rule": {
+      "feature": "shape",
+      "class_a_value": "round",
+      "class_b_value": "spiky"
+    },
+    "curveballs": [
+      {
+        "id": "cb1",
+        "item": {
+          "color": "green",
+          "shape": "spiky"
+        },
+        "expected_model_failure": true
+      }
+    ]
+  },
+  "theme": {
+    "title": "Orbit Patrol",
+    "setting": "Choose labeled training examples, then Train & Test. Inspect the predictions. Add counterexamples from the extra examples and retrain to help the gate generalize.",
+    "accent": "#365da3",
+    "tutorial": "Choose labeled training examples, then Train & Test. Inspect the predictions. Add counterexamples from the extra examples and retrain to help the gate generalize.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "Choose labeled training examples, then Train & Test. Inspect the predictions. Add counterexamples from the extra examples and retrain to help the gate generalize.",
+    "options": [
+      "Friendly alien",
+      "Space bug"
+    ],
+    "featureLabels": {
+      "green": "Green",
+      "red": "Red",
+      "round": "Round",
+      "spiky": "Spiky",
+      "color": "Color",
+      "shape": "Shape"
+    }
+  }
+}
