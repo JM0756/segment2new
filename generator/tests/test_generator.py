@@ -10,6 +10,7 @@ from unittest.mock import Mock
 from urllib.error import HTTPError
 
 import pytest
+from PIL import Image
 
 from generator import generate as cli
 from generator.image_client import ImageClient, ImageGenerationError
@@ -151,7 +152,7 @@ def test_image_endpoint(tmp_path, monkeypatch, via_url):
     monkeypatch.setattr("generator.image_client.urlopen", send)
     asset = ImageClient().generate("friendly alien", tmp_path, "test", "class0")
     assert asset == "assets/test_class0.png"
-    assert (tmp_path / asset).read_bytes() == PNG
+    assert Image.open(tmp_path / asset).format == "PNG"
     request = send.call_args_list[0].args[0]
     assert request.full_url == "http://localhost:3001/v1/images/generations"
     assert request.get_header("Authorization") == "Bearer test-key"
@@ -171,7 +172,7 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
     text = Mock(model="test", complete=Mock(side_effect=[first, json.dumps(cfg)]))
     monkeypatch.setattr(cli, "LLMClient", lambda: text)
     ok = {"b64_json": base64.b64encode(PNG).decode()}
-    error = HTTPError("http://localhost:3001", 503, "Unavailable", {}, BytesIO(b"provider busy"))
+    error = HTTPError("http://localhost:3001", 500, "Unavailable", {}, BytesIO(b"provider busy"))
     responses = [image_response(ok), error] if failure else [image_response(ok), image_response(ok)]
     send = Mock(side_effect=responses)
     monkeypatch.setattr("generator.image_client.urlopen", send)
@@ -196,10 +197,26 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
         second_path, = directory.glob("*_L2.json")
         assert theme["sprites"] == json.loads(second_path.read_text())["theme"]["sprites"]
         for slot in ("class0_asset", "class1_asset"):
-            assert (directory / theme["sprites"][slot]).read_bytes() == PNG
+            assert Image.open(directory / theme["sprites"][slot]).mode == "RGBA"
 
 
 def test_malformed_image_response(tmp_path, monkeypatch):
     monkeypatch.setattr("generator.image_client.urlopen", Mock(return_value=image_response({"b64_json": "%"})))
     with pytest.raises(ImageGenerationError):
         ImageClient().generate("entity", tmp_path, "test", "class0")
+
+@pytest.mark.parametrize("image_format", ["JPEG", "WEBP"])
+def test_image_conversion_after_retry(tmp_path, monkeypatch, image_format):
+    buffer = BytesIO()
+    Image.new("RGB", (4, 3), "red").save(buffer, format=image_format)
+    busy = HTTPError("http://localhost", 503, "Unavailable", {}, BytesIO(b"busy"))
+    response = image_response({"b64_json": base64.b64encode(buffer.getvalue()).decode()})
+    send = Mock(side_effect=[busy, response])
+    pause = Mock()
+    monkeypatch.setattr("generator.image_client.urlopen", send)
+    monkeypatch.setattr("generator.image_client.sleep", pause)
+    asset = ImageClient().generate("entity", tmp_path, "retry", "class0")
+    pause.assert_called_once_with(10)
+    assert send.call_count == 2
+    with Image.open(tmp_path / asset) as image:
+        assert (image.format, image.mode, image.size) == ("PNG", "RGBA", (4, 3))

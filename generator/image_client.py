@@ -1,9 +1,12 @@
 """Generate one PNG sprite using an OpenAI-compatible image endpoint."""
 import base64
 from http.client import HTTPException
+import io
 import json
 import os
 from pathlib import Path
+from time import sleep
+from PIL import Image
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -31,20 +34,32 @@ class ImageClient:
         target = directory / relative
         try:
             request = Request(self.base + "/images/generations", json.dumps(payload).encode(), headers)
-            with urlopen(request, timeout=180) as response:
-                item = json.load(response)["data"][0]
+            for attempt in range(2):
+                try:
+                    with urlopen(request, timeout=180) as response:
+                        item = json.load(response)["data"][0]
+                    break
+                except HTTPError as error:
+                    if attempt or error.code not in (429, 502, 503):
+                        raise
+                    error.close()
+                    sleep(10)
             if item.get("b64_json"):
-                png = base64.b64decode(item["b64_json"], validate=True)
+                raw_bytes = base64.b64decode(item["b64_json"], validate=True)
             else:
                 url = item["url"]
                 if urlsplit(url).scheme not in ("http", "https"):
                     raise ValueError("Expected an HTTP(S) image URL")
                 with urlopen(url, timeout=180) as response:
-                    png = response.read()
-            if not png.startswith(b"\x89PNG\r\n\x1a\n"):
-                raise ValueError("Image response is not a PNG")
+                    raw_bytes = response.read()
+            try:
+                with Image.open(io.BytesIO(raw_bytes)) as source:
+                    image = source.convert("RGBA")
+            except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as error:
+                snippet = raw_bytes[:200].decode("utf-8", errors="replace")
+                raise ImageGenerationError(f"Invalid image response: {snippet!r}") from error
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(png)
+            image.save(target, format="PNG")
         except HTTPError as error:
             try:
                 detail = error.read().decode("utf-8", errors="replace").strip()
