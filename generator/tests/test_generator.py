@@ -19,6 +19,11 @@ from generator.llm_client import APIError, LLMClient
 from generator.metrics import summarize
 
 
+@pytest.fixture(autouse=True)
+def isolated_image_provider(monkeypatch):
+    monkeypatch.setenv("PIXELLAB_API_KEY", "")
+
+
 ARCADE = Path(__file__).resolve().parents[2] / "arcade"
 
 
@@ -141,6 +146,8 @@ def image_response(item):
 
 @pytest.mark.parametrize("via_url", [False, True])
 def test_image_endpoint(tmp_path, monkeypatch, via_url):
+    if via_url:
+        monkeypatch.delenv("PIXELLAB_API_KEY", raising=False)
     for name in ("IMAGE_BASE_URL", "IMAGE_API_KEY", "IMAGE_MODEL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("LLM_BASE_URL", "http://localhost:3001/")
@@ -173,7 +180,7 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
     monkeypatch.setattr(cli, "LLMClient", lambda: text)
     ok = {"b64_json": base64.b64encode(PNG).decode()}
     error = HTTPError("http://localhost:3001", 500, "Unavailable", {}, BytesIO(b"provider busy"))
-    responses = [image_response(ok), error] if failure else [image_response(ok), image_response(ok)]
+    responses = [image_response(ok), error] if failure else [image_response(ok) for _ in range(3)]
     send = Mock(side_effect=responses)
     monkeypatch.setattr("generator.image_client.urlopen", send)
     log = tmp_path / "runs.jsonl"
@@ -185,7 +192,7 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
     directory = tmp_path / "generated/Search-Desk"
     first_path, = directory.glob("*_L1.json")
     theme = json.loads(first_path.read_text())["theme"]
-    assert send.call_count == 2
+    assert send.call_count == (2 if failure else 3)
     assert "class0_prompt" in str(json.loads(text.complete.call_args.args[0][1]["content"])["constraints"])
     if failure:
         assert "sprites" not in theme
@@ -195,7 +202,11 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
             assert "provider busy" in json.loads(path.read_text())["sprite_error"]
     else:
         second_path, = directory.glob("*_L2.json")
-        assert theme["sprites"] == json.loads(second_path.read_text())["theme"]["sprites"]
+        second_theme = json.loads(second_path.read_text())["theme"]
+        assert theme["sprites"] == second_theme["sprites"]
+        assert theme["backgroundSprite"] == second_theme["backgroundSprite"]
+        assert Image.open(directory/theme["backgroundSprite"]).size == (320, 180)
+        assert theme["environment"]["setting_name"] in json.loads(send.call_args.args[0].data)["prompt"]
         for slot in ("class0_asset", "class1_asset"):
             assert Image.open(directory / theme["sprites"][slot]).mode == "RGBA"
 
@@ -258,6 +269,8 @@ def test_chat_refine_post_repairs_setting(tmp_path, monkeypatch, recover):
     cfg["theme"]["setting"] = "Compare the speakeasy ledger with the witness account."
     client = Mock(model="test")
     client.complete.side_effect = ["{}", "```json\n"+json.dumps(cfg)+"\n```"] if recover else ["{}"]*3
+    if recover:
+        client.complete.side_effect = ["{}", json.dumps(cfg), *[(ARCADE/game/f"source/level{tier}.json").read_text() for tier in (2,3)]]
     monkeypatch.setattr(server, "ROOT", tmp_path)
     monkeypatch.setattr(server, "catalog", lambda: [dict(game=game, levels={1:path})])
     monkeypatch.setattr(server, "LLMClient", lambda: client)
@@ -272,7 +285,7 @@ def test_chat_refine_post_repairs_setting(tmp_path, monkeypatch, recover):
     handler.do_POST()
     status, result = handler.respond.call_args.args
     assert result["ok"] is recover
-    messages = client.complete.call_args.args[0]
+    messages = client.complete.call_args_list[0].args[0]
     assert any("'mechanics' is a required property" in m["content"] for m in messages)
     if recover:
         assert status == 200 and result["config"] == cfg
@@ -334,3 +347,110 @@ def test_cutout_starts_at_every_border():
     result = cutout(image)
     assert result.getpixel((64,70))[3] == 0
     assert result.getchannel("A").getbbox() == (41,24,87,116)
+
+@pytest.mark.parametrize("slot", ["class0", "class1", "backgroundSprite"])
+def test_pixflux_routes_native_art(tmp_path, monkeypatch, slot):
+    monkeypatch.setenv("PIXELLAB_API_KEY", "pixel-test")
+    monkeypatch.setenv("PIXELLAB_BASE_URL", "https://pixflux.example/v1/")
+    monkeypatch.setenv("IMAGE_API_KEY", "separate-gateway-key")
+    scene = slot == "backgroundSprite"
+    expected = (320,180) if scene else (128,128)
+    art = Image.new("RGBA", expected, "white" if scene else (0,0,0,0))
+    art.paste("white", (32,24,96,116))
+    buffer = BytesIO()
+    art.save(buffer,format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+    send = Mock(return_value=BytesIO(json.dumps({"image":{"type":"base64","base64":"data:image/png;base64,"+encoded}}).encode()))
+    monkeypatch.setattr("generator.image_client.urlopen",send)
+    asset = ImageClient().generate("crew",tmp_path,"orbital",slot)
+    request = send.call_args.args[0]
+    payload = json.loads(request.data)
+    assert request.full_url == "https://pixflux.example/v1/generate-image-pixflux"
+    assert request.get_header("Authorization") == "Bearer pixel-test"
+    assert payload["no_background"] is (not scene)
+    assert payload["image_size"] == dict(width=expected[0],height=expected[1])
+    with Image.open(tmp_path/asset) as saved:
+        assert saved.size == expected
+        if not scene:
+            assert "blocky 2.5D chibi" in payload["description"]
+            assert saved.getpixel((64,64)) == (255,255,255,255)
+            assert saved.getpixel((0,0))[3] == 0
+
+
+def test_llm_cannot_supply_unowned_background_path(tmp_path):
+    cfg = default("Feature-Classifier")
+    cfg["theme"]["backgroundSprite"] = "assets/invented.png"
+    del cfg["theme"]["environment"]
+    corrected = default("Feature-Classifier")
+    corrected["theme"]["backgroundSprite"] = "assets/invented.png"
+    path,row,_ = run(tmp_path,[json.dumps(cfg),json.dumps(corrected)])
+    assert row["attempts"] == 2
+    theme = json.loads(path.read_text())["theme"]
+    assert "backgroundSprite" not in theme and theme["environment"]["preset"] == "space-station"
+
+
+def test_background_failure_retains_characters_and_procedural_scene(tmp_path, monkeypatch):
+    config = default("Alert-Dial")
+    config["theme"]["sprites"] = dict(class0_prompt="crew", class1_prompt="android")
+    client = Mock()
+    client.generate.side_effect = ["assets/a.png", "assets/b.png", ImageGenerationError("busy")]
+    monkeypatch.setattr(cli, "ImageClient", lambda: client)
+    warning = cli.attach_sprites(config, None, ARCADE/"Alert-Dial/source", "Alert-Dial", 1, tmp_path, "test")
+    assert "busy" in warning
+    assert config["theme"]["sprites"]["class1_asset"] == "assets/b.png"
+    assert config["theme"]["environment"]["floor_style"] == "asphalt"
+    assert "backgroundSprite" not in config["theme"]
+
+
+@pytest.mark.parametrize("background", ["#080808", "#f4f4f4"])
+def test_cleanup_keys_dominant_border_and_enclosed_neutral_pocket(background):
+    from generator.image_client import clean_sprite_background
+    image = Image.new("RGBA", (24, 24), background)
+    image.putpixel((0, 0), (20, 110, 40, 255))  # The corner alone is a poor color key.
+    image.paste("#da3249", (4, 4, 20, 20))
+    image.paste(background, (8, 8, 16, 16))
+    result = clean_sprite_background(image)
+    assert result.size == (128, 128)
+    assert result.getpixel((0, 0))[3] == result.getpixel((73, 80))[3] == 0
+    r, g, b, alpha = result.getpixel((90, 102))
+    assert (r, g, b) == (218, 50, 73) and alpha >= 250
+
+
+@pytest.mark.parametrize("game", ["Alert-Dial", "Claim-Inspector"])
+def test_generate_class_sprites_for_arena_games(tmp_path, monkeypatch, game):
+    text = Mock(model="mock")
+    text.complete.return_value = json.dumps(default(game))
+    images = Mock()
+    images.generate.side_effect = lambda _, directory, stem, slot: f"assets/{slot}.png"
+    monkeypatch.setattr(cli, "ImageClient", lambda: images)
+    path = generate(text, game, "Activity", "Archive", 1, root=tmp_path, log=tmp_path/"log",
+                    generate_sprites=True)
+    theme = json.loads(path.read_text())["theme"]
+    assert [call.args[-1] for call in images.generate.call_args_list] == ["class0","class1","backgroundSprite"]
+    for i in range(2):
+        assert theme[f"class{i}Sprite"] == theme["sprites"][f"class{i}_asset"] == f"assets/class{i}.png"
+        assert theme["options"][i] in images.generate.call_args_list[i].args[0]
+
+
+def test_generator_repairs_missing_and_unknown_layouts(tmp_path):
+    correct = default("Feature-Classifier")
+    old = copy.deepcopy(correct)
+    del old["theme"]["environment"]["layout"]
+    assert cli.validate(ARCADE/"Feature-Classifier/source", "Feature-Classifier", old, 1) is None
+    invalid = copy.deepcopy(correct)
+    invalid["theme"]["environment"]["layout"] = "invalid"
+    path, record, _ = run(tmp_path, map(json.dumps, [old, invalid, correct]))
+    assert path and record["attempts"] == 3
+    assert json.loads(path.read_text()) == correct
+
+
+def test_signal_sorter_rejects_ambiguous_wave_and_wrong_tier_size():
+    game = "Signal-Sorter"
+    source = ARCADE/game/"source"
+    for tier,name in enumerate(("default","level2","level3"),1):
+        config = json.loads((source/(name+".json")).read_text())
+        assert cli.validate(source,game,config,tier) is None
+    config["mechanics"]["samples"] = [0]*9
+    assert "clean and noisy" in cli.validate(source,game,config,3)
+    config["mechanics"]["samples"] = [1,0,1]
+    assert "9 entries" in cli.validate(source,game,config,3)

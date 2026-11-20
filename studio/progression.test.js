@@ -30,18 +30,18 @@ async function mountStudio(){
   function element(){return {
     value:'',dataset:{},classList:{add(){},remove(){},toggle(){}},focus(){},scrollIntoView(){},addEventListener(){},
     children:[],style:{setProperty(){}},contentWindow:{},
-    getContext:()=>({fillRect(){}}),toDataURL:()=>'',matches:()=>false,setAttribute(){},
+    getContext:()=>({fillRect(){},scale(){},ellipse(){},beginPath(){},fill(){},stroke(){},save(){},restore(){},translate(){}}),toDataURL:()=>'',matches:()=>false,setAttribute(){},
     append(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=nodes;}
   };}
   const get=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
-  const game='Feature-Classifier',levels={1:'/arcade/Feature-Classifier/source/default.json',2:'/arcade/Feature-Classifier/source/level2.json'};
+  const game='Feature-Classifier',levels={1:'/arcade/Feature-Classifier/source/default.json',2:'/arcade/Feature-Classifier/source/level2.json',3:'/arcade/Feature-Classifier/source/level3.json'};
   const item={game,title:'Orbital Station',levels};
-  const context=vm.createContext({document:{addEventListener(){},documentElement:element(),body:element(),createElement:element,getElementById:get},
+  const context=vm.createContext({document:{addEventListener:(k,f)=>listeners[k]=f,documentElement:element(),body:element(),createElement:element,getElementById:get},
     location:{origin:'http://localhost:8000'},window:{matchMedia:()=>({matches:false}),addEventListener:(k,f)=>listeners[k]=f},
     localStorage:{getItem:k=>records.get(k),setItem:(k,v)=>records.set(k,v)},
     fetch:async()=>({ok:true,json:async()=>({items:[item],health:{model:'auto'}})}),
     Option:class{},URL,URLSearchParams,crypto:require('node:crypto'),setInterval(fn,ms){intervals.set(ms,fn);return ms;},clearInterval(ms){intervals.delete(ms);}});
-  for(const file of ['progression.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),context);
+  for(const file of ['../arcade/environment.js','progression.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),context);
   await new Promise(resolve=>setImmediate(resolve));
   return {get,context,intervals,listeners,game,levels,records,item};
 }
@@ -53,17 +53,27 @@ test('Studio mounts the default tutorial first and gates the floating remix cont
   assert.equal(stage.src.searchParams.get('mode'),'tutorial');
   assert.equal(stage.src.searchParams.get('config'),levels[1]);
   assert.equal(get('remixToggle').hidden,true);
-  assert.equal(get('levels').children[1].disabled,true);
-  function complete(accuracy,stars,passed){
+  assert.equal(get('stageChat').hidden,true);
+  function message(type,passed=true,accuracy=100){
     listeners.message({origin:'http://localhost:8000',source:stage.contentWindow,data:{
-      type:'ARCADE_PROGRESS',archetype:game,level:Number(stage.src.searchParams.get('level')),
-      run:stage.src.searchParams.get('run'),accuracy,stars,passed}});
+      type,archetype:game,level:Number(stage.src.searchParams.get('level')),
+      run:stage.src.searchParams.get('run'),accuracy,stars:accuracy>=80?3:2,passed}});
   }
-  complete(60,2,true);
-  assert.equal(stage.src.searchParams.get('level'),'1');assert.equal(get('remixToggle').hidden,false);
-  complete(79,2,false);assert.equal(get('levels').children[2].disabled,true);
-  complete(80,3,true);assert.equal(stage.src.searchParams.get('config'),levels[2]);
-  assert.equal(records.get('arcade-progress-v1/'+game),'2');
+  message('ARCADE_NEXT');assert.equal(stage.src.searchParams.get('level'),'0');
+  message('ARCADE_PROGRESS');assert.equal(stage.src.searchParams.get('level'),'0');
+  message('ARCADE_NEXT');assert.equal(stage.src.searchParams.get('level'),'1');
+  get('remixToggle').onclick();assert.equal(get('stageChat').hidden,false);
+  listeners.fullscreenchange();assert.equal(get('stageChat').hidden,true);
+  get('remixToggle').onclick();assert.equal(get('stageChat').hidden,false);
+  listeners.fullscreenchange();assert.equal(get('stageChat').hidden,true);
+  message('ARCADE_PROGRESS',false,60);message('ARCADE_NEXT');
+  assert.equal(stage.src.searchParams.get('level'),'1');
+  for(const next of [2,3]){
+    message('ARCADE_PROGRESS');message('ARCADE_NEXT');
+    assert.equal(stage.src.searchParams.get('config'),levels[next]);
+    assert.equal(get('stageChat').hidden,true);
+  }
+  assert.equal(Number(records.get('arcade-progress-v1/'+game)),3);
 });
 
 test('plain Enter sends and modified or composing Enter leaves the text alone',async()=>{
@@ -129,4 +139,30 @@ test('Studio text tokens meet 4.5:1 against all three surfaces in each theme',()
     }
     assert.ok(ratio(color['on-accent'],color.accent)>=4.5);
   }
+});
+
+test('card banners keep both facing characters when background or sprite art loads',async()=>{
+  const {context}=await mountStudio();
+  const vm=require('node:vm'),images=[],draws=[];
+  context.Image=class {constructor(){this.naturalWidth=128;this.naturalHeight=128;images.push(this);}};
+  context.location.href='http://localhost:8000/';
+  const create=context.document.createElement;
+  context.document.createElement=tag=>{
+    const el=create(tag),ctx=el.getContext();
+    ctx.drawImage=(image)=>draws.push(image);el.getContext=()=>ctx;
+    return el;
+  };
+  const art=vm.runInContext(`renderCardBanner({config:{theme:{setting:'Fallout',backgroundSprite:'assets/yard.png',
+    class0Sprite:'assets/hero.png',sprites:{class1_asset:'assets/scout.png'}}}},'/generated/test/activity.json',true)`,context);
+  assert.equal(art.className,'card-banner result-banner');
+  assert.equal(art.children.length,3);
+  const [,left,right]=art.children;
+  assert.equal(left.children.length,1);
+  assert.equal(right.children.length,1);
+  const fallback=right.children[0];
+  assert.deepEqual(images.map(i=>i.src),['yard','hero','scout'].map(n=>'http://localhost:8000/generated/test/assets/'+n+'.png'));
+  images[1].onload();images[0].onload();
+  assert.deepEqual(draws,[images[1],images[0]]);
+  assert.equal(right.children[0],fallback);
+  assert.equal(art.children[1],left);
 });

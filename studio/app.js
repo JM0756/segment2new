@@ -1,5 +1,6 @@
 const $=id=>document.getElementById(id);
 const concepts={
+  'Signal-Sorter':['Training data quality','Signal Sorter','Accept clean samples and filter noisy labels at the Space Lab.'],
   'Feature-Classifier':['Overfitting','Feature Classifier','Train a classifier to see past misleading patterns.','#b7dc99','#374d58'],
   'Alert-Dial':['Thresholds','Alert Dial','Tune a checkpoint to catch incidents with fewer false alarms.','#ffb876','#684248'],
   'Claim-Inspector':['Fact-Checking','Claim Inspector','Compare incoming claims with the source evidence.','#c0b4ff','#524c76']
@@ -11,20 +12,8 @@ function glyph(ctx,x,y,color,scale=1){
   ctx.fillStyle=color;
   rows.forEach((row,j)=>[...row].forEach((v,i)=>{if(v==='X')ctx.fillRect(x+i*scale,y+j*scale,scale,scale);}));
 }
-function preview(game){
-  const c=document.createElement('canvas');c.width=200;c.height=73;
-  const ctx=c.getContext('2d'),[,,,ink,sky]=concepts[game]||['','','','#9bd8d1','#364d50'];
-  ctx.fillStyle=sky;ctx.fillRect(0,0,200,73);
-  for(let i=0;i<28;i++){ctx.fillStyle='#ffffff55';ctx.fillRect(i*43%199,i*17%40,1,1);}
-  ctx.fillStyle=ink;ctx.fillRect(146,9,16,12);ctx.fillRect(149,6,10,18);
-  for(let i=0;i<26;i++){const y=34+Math.round(6*Math.sin(i));ctx.fillStyle='#232b3c';ctx.fillRect(i*8,y,8,73-y);}
-  ctx.fillStyle='#ffffff26';for(let i=0;i<9;i++)ctx.fillRect(i*28-14,55+i%2*7,16,1);
-  if(game==='Alert-Dial'){ctx.fillStyle=ink;ctx.fillRect(95,21,5,33);ctx.fillRect(134,21,5,33);ctx.fillRect(95,21,44,5);for(let i=0;i<5;i++)ctx.fillRect(96+i*9,31,5,3);}
-  if(game==='Claim-Inspector'){for(let i=0;i<3;i++){ctx.fillStyle=i===2?ink:'#8f89b1';ctx.fillRect(95+i*8,20+i*3,30,24);ctx.fillStyle=sky;ctx.fillRect(99+i*8,25+i*3,19,2);ctx.fillRect(99+i*8,31+i*3,13,2);}}
-  if(game==='Feature-Classifier'){glyph(ctx,112,33,'#ebb89b',3);ctx.fillStyle='#a6d8c8';ctx.fillRect(39,51,42,2);}
-  glyph(ctx,47,34,ink,3);return c;
-}
 const mascot=$('mascot').getContext('2d');glyph(mascot,1,3,'#dbfa90',3);
+glyph($('remixMascot').getContext('2d'),1,3,'#dbfa90',3);
 const tile=document.createElement('canvas');tile.width=96;tile.height=80;glyph(tile.getContext('2d'),28,28,'#fff');
 document.body.style.setProperty('--matrix','url('+tile.toDataURL()+')');
 function saved(item){return Object.values(item.levels)[0].startsWith('/generated/');}
@@ -42,7 +31,7 @@ function resizeInput(){
 }
 function home(){
   session++;clearInterval(pendingTimer);busy=false;active=null;path=null;targetPath=null;currentCard=null;
-  $('main').append($('play'));$('play').hidden=true;$('stage').removeAttribute('src');
+  closeChat();$('main').append($('play'));$('play').hidden=true;$('stage').removeAttribute('src');
   $('thread').replaceChildren();$('thread').hidden=true;$('back').hidden=true;$('home').hidden=false;
   $('main').classList.remove('conversation');$('status').textContent='';$('send').disabled=false;
   $('theme').value='';$('theme').placeholder='Describe the setting or game you want to build…';
@@ -52,10 +41,41 @@ function turn(kind){
   const node=document.createElement('article');node.className='turn '+kind;
   node.setAttribute('aria-label',kind==='user'?'You':'Arcade Studio');$('thread').append(node);return node;
 }
-function artFor(item,file){
-  const art=document.createElement('div');art.className='preview';art.append(preview(item.game));
+function renderCardBanner(item,file,result=false){
+  const theme=item.config?.theme||item;
+  const art=document.createElement('div');
+  art.className=result?'card-banner result-banner':'card-banner';
   art.setAttribute('aria-hidden','true');
-  if(item.thumbnail){const img=new Image();img.alt='';img.src=new URL(item.thumbnail,new URL(file,location.href));art.append(img);}
+  const scene=document.createElement('canvas');
+  scene.width=640;scene.height=240;
+  ArcadeEnvironment.drawArenaBackground(scene.getContext('2d'),640,240,theme,{banner:true});
+  art.append(scene);
+  function load(asset,onLoad){
+    if(!asset)return;
+    const image=new Image();
+    image.onload=()=>onLoad(image);
+    image.src=new URL(asset,new URL(file,location.href)).href;
+  }
+  load(theme.backgroundSprite,image=>ArcadeEnvironment.backdrop(scene.getContext('2d'),640,240,image));
+  if(item.game==='Signal-Sorter'&&!theme.backgroundSprite){
+    const painter=scene.getContext('2d');
+    for(const [x,color] of [[236,'#8ff6ca'],[395,'#ff9b79']]){
+      painter.fillStyle='#203c55';painter.fillRect(x,113,18,18);
+      painter.fillStyle=color;painter.fillRect(x+3,116,12,12);
+      if(x>300){painter.fillStyle='#203c55';painter.fillRect(x+8,115,3,10);}
+    }
+  }
+  for(const slot of [0,1]){
+    const actor=document.createElement('span');actor.className='banner-actor';
+    const spec={theme,slot,facing:slot===0?1:-1};
+    const draw=image=>{
+      actor.replaceChildren();
+      ArcadeEnvironment.drawAvatarIcon(actor,image,spec,88);
+    };
+    draw(null);
+    art.append(actor);
+    load(theme['class'+slot+'Sprite']||theme.sprites?.['class'+slot+'_asset'],draw);
+  }
   return art;
 }
 function resultCard(item,file,where,summary){
@@ -63,12 +83,25 @@ function resultCard(item,file,where,summary){
   const [category,,lesson]=concepts[item.game]||['ML arcade',item.game,item.game];
   where.replaceChildren();
   if(summary){const text=document.createElement('p');text.className='summary';text.textContent=summary;where.append(text);}
-  const card=document.createElement('section');card.className='result';card.tabIndex=-1;card.setAttribute('aria-label',item.title);
+  const card=document.createElement('section');card.className='result result-card';card.tabIndex=-1;card.setAttribute('aria-label',item.title);
   const body=document.createElement('div');body.className='card-body';
   for(const [tag,text] of [['span',category],['h3',item.title],['p',lesson]]){
     const el=document.createElement(tag);el.textContent=text;if(tag==='span')el.className='category';body.append(el);
   }
-  const open=button('Play this version',mount);body.append(open);card.append(artFor(item,file),body);where.append(card);
+  const open=button('Play this version',mount);body.append(open);
+  if(file.startsWith('/generated/.tmp/')){
+    const save=button('Save Game',async()=>{
+      save.disabled=true;
+      try{
+        const result=await libraryRequest('/api/save-game','POST',item.game,file);
+        if(targetPath===file)targetPath=result.config_path;
+        file=result.config_path;item.levels=result.levels;
+        save.textContent='Saved';await refresh();
+      }catch(err){save.disabled=false;$('status').textContent=err.message;}
+    });
+    body.append(save);
+  }
+  card.append(renderCardBanner(item,file,true),body);where.append(card);
   function mount(){
     if(currentCard)currentCard.hidden=false;currentCard=open;open.hidden=true;
     card.append($('play'));targetPath=file;$('game').value=item.game;$('game').disabled=true;
@@ -79,60 +112,83 @@ function resultCard(item,file,where,summary){
   mount();
 }
 const sessionUnlocks=new Map();
+let passedRun=false;
+function closeChat(){
+  $('stageChat').hidden=true;$('remixToggle').setAttribute('aria-expanded','false');
+}
 function play(item,file,requested){
-  active=item;
+  active=item;closeChat();passedRun=false;
   const storageKey='arcade-progress-v1/'+item.game;
   unlocked=sessionUnlocks.get(item.game)||0;
   try{
     const stored=Number(localStorage.getItem(storageKey));
-    if([0,1,2].includes(stored))unlocked=Math.max(unlocked,stored);
+    if([0,1,2,3].includes(stored))unlocked=Math.max(unlocked,stored);
   }catch{}
-  const baseline=items.find(i=>i.game===item.game&&!saved(i))||{title:item.game,levels:{1:'/arcade/'+item.game+'/source/default.json'}};
-  const paths=[baseline.levels[1],item.levels[1]||baseline.levels[1],item.levels[2]||baseline.levels[2]];
-  level=Progression.enter(unlocked,requested??(file&&file===item.levels[2]?2:1));
-  if(!paths[level])level=1;
+  const baseline=items.find(i=>i.game===item.game&&!saved(i));
+  const first=item.levels[1]||file;
+  const paths=[first,first,item.levels[2]||baseline?.levels[2],item.levels[3]||baseline?.levels[3]];
+  level=Progression.enter(unlocked,requested??Math.max(1,paths.lastIndexOf(file)));
   path=paths[level];runId=crypto.randomUUID();
-  $('play').hidden=false;
-  $('remixToggle').hidden=!Progression.canRemix(level,unlocked);
-  if(level>0&&Object.values(item.levels).includes(path))targetPath=path;
+  $('play').hidden=false;$('remixToggle').hidden=!Progression.canRemix(level,unlocked);
+  if(Object.values(item.levels).includes(path))targetPath=path;
   const url=new URL('/arcade/'+item.game+'/source/index.html',location.origin);
   url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,game:item.game,run:runId});
-  $('stage').src=url;$('stage').title=(level===0?baseline:item).title+' · '+(level?'Level '+level:'Tutorial');
-  $('levels').replaceChildren(...['Tutorial','Level 1','Level 2'].map((name,n)=>{
-    const locked=n>unlocked||!paths[n];
-    const b=button(name+(locked?' 🔒':''),()=>play(item,paths[n],n));
-    b.disabled=locked;b.setAttribute('aria-pressed',String(n===level));
-    b.title=locked?(n===2?'Score ≥ 80% (3 Stars) in Level 1 to unlock Level 2':'Complete the tutorial first'):'';
-    return b;
-  }));
+  $('stage').src=url;$('stage').title=item.title+' · '+(level?'Level '+level:'Tutorial');
 }
 window.addEventListener('message',e=>{
   const m=e.data;
-  if(!active||e.origin!==location.origin||e.source!==$('stage').contentWindow||m?.type!=='ARCADE_PROGRESS'||
-      m.run!==runId||m.archetype!==active.game||m.level!==level)return;
-  const next=Progression.complete(unlocked,level,m);
-  if(next>unlocked||level===0&&m.passed){
-    sessionUnlocks.set(active.game,next);unlocked=next;try{localStorage.setItem('arcade-progress-v1/'+active.game,String(next));}catch{}
-    $('status').textContent=level===0?'Tutorial complete · Level 1 unlocked.':Math.floor(m.accuracy)+'% · ★★★ Level 2 unlocked.';
-    play(active,null,level===0?1:next);
-  }else if(level===1&&m.accuracy<80){
-    $('status').textContent=Math.floor(m.accuracy)+'% · Replay Level 1 and score at least 80% to unlock Level 2.';
+  if(!active||e.origin!==location.origin||e.source!==$('stage').contentWindow||
+      m?.run!==runId||m.archetype!==active.game||m.level!==level)return;
+  if(m.type==='ARCADE_NEXT'){
+    if(passedRun&&level<3)play(active,null,level+1);
+    return;
   }
+  if(m.type!=='ARCADE_PROGRESS')return;
+  passedRun=m.passed&&(level===0||m.accuracy>=80&&m.stars===3);
+  unlocked=Progression.complete(unlocked,level,m);
+  sessionUnlocks.set(active.game,unlocked);
+  try{localStorage.setItem('arcade-progress-v1/'+active.game,unlocked);}catch{}
 });
+async function libraryRequest(endpoint,method,game,path){
+  const response=await fetch(endpoint,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({game,path})});
+  const result=await response.json();
+  if(!response.ok||!result.ok)throw Error(result.error||'The library could not be updated.');
+  return result;
+}
 function cards(){
   const library=items.filter(i=>concepts[i.game]&&!saved(i));
   $('catalog').replaceChildren(...library.map(i=>{
     const [cat,title,desc]=concepts[i.game]||['ML arcade',i.game,'Play the interactive activity.','#aadbd7'];
-    const file=Object.values(i.levels)[0],b=button('Play '+title,()=>resultCard(i,file,turn('assistant')));b.textContent='';b.className='card';
-    const art=artFor(i,file);
+    const file=Object.values(i.levels)[0],b=button('Play '+title,()=>resultCard(i,file,turn('assistant')));b.textContent='';b.className='card game-card';
+    const art=renderCardBanner(i,file);
     const body=document.createElement('div');body.className='card-body';
     for(const [tag,text] of [['span',cat],['strong',saved(i)?i.title:title],['p',desc]]){
       const el=document.createElement(tag);el.textContent=text;if(tag==='span')el.className='category';body.append(el);
     }
+    if(i.game==='Signal-Sorter'){
+      const icon=document.createElement('canvas');icon.width=18;icon.height=16;icon.className='sorter-mascot';
+      icon.setAttribute('aria-hidden','true');glyph(icon.getContext('2d'),0,0,'#8ae1b4',2);body.append(icon);
+    }
     b.append(art,body);return b;
   }));
-  const custom=items.filter(saved);$('savedList').replaceChildren(...custom.map(i=>button(i.title,()=>{$('saved').close();resultCard(i,Object.values(i.levels)[0],turn('assistant'));})));
-  if(!custom.length)$('savedList').textContent='Your generated games will appear here.';
+  const custom=items.filter(saved);$('savedList').replaceChildren(...custom.map(i=>{
+    const file=i.preview_path||Object.values(i.levels)[0];
+    const card=button(i.title,()=>{$('saved').close();resultCard(i,file,turn('assistant'));});
+    card.className='card game-card';const name=document.createElement('strong');name.className='card-body';name.textContent=i.title;
+    card.replaceChildren(renderCardBanner(i,file),name);
+    const row=document.createElement('div');row.className='saved-game';
+    const remove=button('Delete',async()=>{
+      if(!window.confirm('Delete “'+i.title+'” and its saved artwork?'))return;
+      remove.disabled=true;
+      try{
+        await libraryRequest('/api/saved-game','DELETE',i.game,file);
+        if(active&&Object.values(active.levels).includes(file))home();
+        await refresh();
+      }catch(err){remove.disabled=false;$('status').textContent=err.message;}
+    });
+    row.append(card,remove);return row;
+  }));
+  if(!custom.length)$('savedList').textContent='Games you save will appear here.';
 }
 async function refresh(){
   const r=await fetch('/api/catalog');if(!r.ok)throw Error('Unable to load the game library.');
@@ -162,8 +218,12 @@ async function send(e){
     // A saved turn remains playable if refreshing the library fails.
     try{await refresh();}catch{}
     if(id!==session)return;
-    const item=items.find(i=>Object.values(i.levels).includes(result.config_path))||
-      {game,title:result.config.theme.title,levels:{[Number(result.config_path.match(/_L([123])/)[1])]:result.config_path},thumbnail:result.config.theme.sprites?.class0_asset};
+    const catalogItem=items.find(i=>Object.values(i.levels).includes(result.config_path));
+    const theme=result.config.theme;
+    const tier=Number(result.config_path.match(/_L([123])\.json$/)?.[1]||1);
+    const item={...catalogItem, game, title:theme.title||catalogItem?.title,
+      levels:result.levels||catalogItem?.levels||{[tier]:result.config_path}, environment:theme.environment,
+      config:result.config, thumbnail:theme.class0Sprite||theme.sprites?.class0_asset};
     resultCard(item,result.config_path,reply,result.summary||result.config.theme.setting);
     if(result.message){const note=document.createElement('p');note.textContent='The playable version is ready. Some requested extras could not be generated.';reply.append(note);}
     reply.scrollIntoView({block:'start',behavior:reduced()?'instant':'smooth'});
@@ -183,14 +243,28 @@ $('theme').onkeydown=e=>{
   }
 };
 $('back').onclick=home;$('savedToggle').onclick=()=>$('saved').showModal();$('close').onclick=()=>$('saved').close();
-$('remixToggle').onclick=()=>$('theme').focus();
+$('remixToggle').onclick=()=>{
+  if(!$('stageChat').hidden){closeChat();return;}
+  $('stageChat').hidden=false;$('remixToggle').setAttribute('aria-expanded','true');$('remixText').focus();
+};
+$('stageChat').onsubmit=async e=>{
+  e.preventDefault();
+  const prompt=$('remixText').value.trim();
+  if(!prompt||busy)return;
+  $('theme').value=prompt;$('remixText').value='';closeChat();
+  if(document.fullscreenElement)await document.exitFullscreen();
+  await send(e);
+};
 $('fullscreen').onclick=async()=>{
   try{if(document.fullscreenElement)await document.exitFullscreen();else await $('play').requestFullscreen();}
   catch{$('status').textContent='Fullscreen is unavailable in this browser.';}
 };
 document.addEventListener('fullscreenchange',()=>{
+  closeChat();
+  $('stage').focus();
   const full=Boolean(document.fullscreenElement);
-  $('fullscreen').textContent=full?'Exit Fullscreen':'Launch Fullscreen';$('fullscreen').setAttribute('aria-pressed',String(full));
+  $('fullscreen').setAttribute('aria-label',full?'Exit fullscreen':'Enter fullscreen');
+  $('fullscreen').setAttribute('aria-pressed',String(full));
 });
 function themeMode(mode){
   document.documentElement.dataset.theme=mode;
@@ -214,6 +288,7 @@ function shortcuts(e){
   }
 }
 function dismiss(){
+  if(!$('stageChat').hidden){closeChat();$('remixToggle').focus();return true;}
   if($('saved').open){$('saved').close();$('savedToggle').focus();return true;}
   for(const [id,trigger] of [['shortcuts','help'],['settings','gateway']]){
     if($(id).matches(':popover-open')){$(id).hidePopover();$(trigger).focus();return true;}
@@ -221,8 +296,12 @@ function dismiss(){
   return false;
 }
 window.addEventListener('keydown',shortcuts);
-$('stage').addEventListener('load',()=>{$('stage').contentDocument?.addEventListener('keydown',shortcuts);});
+$('stage').addEventListener('load',()=>{
+  $('stage').contentDocument?.addEventListener('keydown',shortcuts);
+  if(active&&!$('play').hidden)$('stage').focus();
+});
 function showHealth(s){
+  $('imageProvider').textContent=s.pixellab_configured?'Image provider: PixelLab':'Image provider: FreeLLMAPI';
   $('model').textContent='FreeLLMAPI / '+s.model;
   $('gateway').textContent=s.auth_required?'Gateway · key required':!s.online?'Gateway unavailable':
     s.http_status===200?'Gateway online':'Gateway · HTTP '+s.http_status;
@@ -233,9 +312,9 @@ $('gatewayForm').onsubmit=async e=>{
   e.preventDefault();
   try{
     const response=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({base_url:$('baseUrl').value,api_key:$('apiKey').value})});
+      body:JSON.stringify({base_url:$('baseUrl').value,api_key:$('apiKey').value,pixellab_api_key:$('pixelKey').value})});
     const result=await response.json();if(!result.ok)throw Error(result.error);
-    $('apiKey').value='';$('settingsMessage').textContent='';$('settings').hidePopover();showHealth(result);
+    $('apiKey').value='';$('pixelKey').value='';$('settingsMessage').textContent='';$('settings').hidePopover();showHealth(result);
   }catch(err){$('settingsMessage').textContent=err.message;}
 };
 async function status(){try{showHealth(await (await fetch('/api/health')).json());}catch{$('gateway').textContent='Gateway unavailable';}}

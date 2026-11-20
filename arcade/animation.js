@@ -1,5 +1,8 @@
 // Actor transforms are shared by diffusion art and the procedural characters.
 const ArcadeHUD = {
+  drawAvatarIcon(target,image,spec,size){
+    ArcadeEnvironment.drawAvatarIcon(target,image,spec,size);
+  },
   spawnCallout(entity, outcome, now) {
     return {...outcome,x:entity.x,y:entity.y,entity:{...entity},start:now};
   },
@@ -22,7 +25,7 @@ const ArcadeHUD = {
       if(e.correct){ctx.fillRect(x-2,y,5,1);ctx.fillRect(x,y-2,1,5);}
       else{ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+5*Math.cos(a),y+6*Math.sin(a));ctx.lineTo(x+2,y-2);ctx.fill();}
     }
-    ctx.translate(0,-25-t*10);ctx.rotate(e.correct?-.07:.09);ctx.font='bold 9px monospace';
+    ctx.translate(0,-25-t*10);ctx.rotate(e.correct?-.07:.09);ctx.font='bold 11px Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
     const width=ctx.measureText(e.text).width+8;
     ctx.fillStyle=e.correct?'#135641':'#872c32';ctx.fillRect(-width/2,-8,width,14);
     ctx.fillStyle=e.correct?'#ffea97':'#fff1cb';ctx.textAlign='center';ctx.fillText(e.text,0,2);ctx.restore();

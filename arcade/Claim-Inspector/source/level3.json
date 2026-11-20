@@ -1,0 +1,56 @@
+{
+  "archetype": "audit",
+  "mechanics": {
+    "answers": [
+      0,
+      0,
+      1,
+      2,
+      1
+    ]
+  },
+  "theme": {
+    "title": "Claim Inspector",
+    "setting": "Compare each statement with the evidence record.",
+    "accent": "#365da3",
+    "tutorial": "Audit each sentence of an AI summary against the supplied evidence. A claim can be supported, contradicted, or left unresolved.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "Audit each sentence of an AI summary against the supplied evidence. A claim can be supported, contradicted, or left unresolved.",
+    "options": [
+      "Supported",
+      "Contradicted",
+      "Unresolved"
+    ],
+    "claims": [
+      "Both desks received 30 submissions in total.",
+      "Across both desks, half were verified.",
+      "Desk B verified a larger share than Desk A.",
+      "Every unverified submission was false.",
+      "The records cover exactly two reporting days."
+    ],
+    "sources": [
+      "Desk A received 20 submissions and verified 12. Desk B received 10 and verified 3.",
+      "Both counts cover Monday only. Unverified submissions are pending review."
+    ],
+    "environment": {
+      "setting_name": "Evidence desk",
+      "floor_style": "parquet",
+      "props": [
+        "shelves",
+        "desk_lamps"
+      ],
+      "primary_color": "#453747",
+      "secondary_color": "#654c53",
+      "accent_color": "#e5c081",
+      "layout": "newsroom"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # AI literacy activity generator
 
-Run these commands from the Git repository root. The Python CLI generates JSON activities for the six standalone games in [arcade](arcade/README.md). Each game still runs independently. The generator requires Python 3.9+ and an OpenAI-compatible chat completions endpoint.
+Run these commands from the Git repository root. The Python CLI generates JSON activities for the seven standalone games in [arcade](arcade/README.md). Each game still runs independently. The generator requires Python 3.9+ and an OpenAI-compatible chat completions endpoint.
 
 ## Set up
 
@@ -28,7 +28,7 @@ Activate the virtual environment and run:
 python3 studio/server.py
 ```
 
-Open http://localhost:8000/ and choose an archetype under Explore games. Complete its tutorial to unlock Level 1 and the floating AI remix control. Finish Level 1 with at least 80% accuracy to earn three stars and unlock Level 2. This browser remembers progress per archetype. Saved themes appear under All Saved Games. Built-in activities work offline.
+Open http://localhost:8000/ and choose an archetype under Explore games. Complete its tutorial to unlock Level 1 and the floating AI remix control. Pass each round with at least 80% accuracy and select **Next Level →** to advance through Level 3. The browser remembers unlocks per archetype. Studio keeps generated and remixed runs in a temporary workspace until you choose **Save Game**. The saved drawer can reopen or delete a game and its artwork. Built-in activities work offline.
 
 Studio reads a repository-root `.env` at startup and gives exported shell variables precedence. Click the gateway status pill to update the base URL or key for the current server session. A “key required” status means the gateway responded to the models probe. A blank key preserves the current key when the gateway origin stays the same.
 
@@ -39,9 +39,9 @@ python generator/generate.py --archetype Feature-Classifier --topic "Overfitting
 python generator/generate.py --topic "Overfitting" --theme "Nuclear Fallout: Humans vs. Zombies" --level 1 --regenerate-level 2
 ```
 
-Feature-Classifier is the default. Other choices are Alert-Dial, Claim-Inspector, Neighborhood-Vote, Reward-Workshop, and Search-Desk. Levels 1, 2, and 3 target Literacy, Fluency, and Competency. The generator defines Level 3 constraints where the game only supplies earlier tiers.
+Feature-Classifier is the default. Other choices are Signal-Sorter, Alert-Dial, Claim-Inspector, Neighborhood-Vote, Reward-Workshop, and Search-Desk. Levels 1, 2, and 3 target Literacy, Fluency, and Competency. Every archetype includes playable fixtures for all three tiers.
 
-Each accepted activity prints its path under `generated/<archetype>/`. You can send the JSON object to the game's iframe using `LOAD_CONFIG`. The adjacent `.meta.json` records provenance. Each pair shares a unique filename stem. The second prompt includes the accepted Level 1 config. After three failed attempts the command exits with status 1 and retains any accepted first level.
+Each accepted activity prints its path under `generated/<archetype>/`. You can send the JSON object to the game's iframe using `LOAD_CONFIG`. The adjacent `.meta.json` records provenance. Use `--regenerate-level 3` to generate all three tiers with a shared filename stem. The second prompt includes the accepted Level 1 config. After three failed attempts the command exits with status 1 and retains any accepted first level.
 
 To playtest an activity, serve the repository root:
 
@@ -53,18 +53,20 @@ Open `http://localhost:8000/arcade/Feature-Classifier/source/index.html?config=.
 
 ## Generate sprites
 
-Add `--generate-sprites` to request two square PNG icons through the gateway's `/v1/images/generations` endpoint. The command below generates a Level 1 activity and reuses its icons for Level 2.
+Add `--generate-sprites` (or select **2D Sprites** in Studio) to generate two characters and a matching arena background. The higher tiers reuse the Level 1 art. Without images, the cards and games draw the floor, palette and props from the activity’s environment.
 
 ```sh
 export IMAGE_MODEL="auto"
 python generator/generate.py --archetype Feature-Classifier --topic "Overfitting" --theme "Deep space" --generate-sprites --regenerate-level 2
 ```
 
-`IMAGE_MODEL` defaults to `auto`. Set `IMAGE_BASE_URL` or `IMAGE_API_KEY` to override the text gateway URL or key for diffusion. Without the flag, the generator makes only text requests.
+Set `PIXELLAB_API_KEY` in the repository-root `.env` or your shell to use PixelLab Pixflux. Both the CLI and Studio read this file and preserve existing shell settings. You can also enter a PixelLab key in Studio’s gateway settings for that server session. `PIXELLAB_BASE_URL` defaults to `https://api.pixellab.ai/v1`. Characters request native transparency at 128×128; the arena requests a 320×180 scene. [PixelLab v1 API](https://api.pixellab.ai/v1/docs)
 
-Both levels reference PNGs in the adjacent `assets/` directory. Keep that directory alongside the JSON when copying an activity. The games resolve asset paths relative to the JSON selected by `?config=` and also accept image data URIs. Serve the arcade folder with its shared renderer and stylesheets.
+An unset or empty PixelLab key selects the OpenAI-compatible `/images/generations` endpoint and Pillow character cleanup. `IMAGE_MODEL` defaults to `auto`. Set `IMAGE_BASE_URL` or `IMAGE_API_KEY` to override the text gateway URL or key for diffusion. Without the flag, the generator makes only text requests.
 
-If diffusion fails, the generator saves the validated text activity and records the provider error under `sprite_error` in its metadata and generation log. Each game draws geometric icons for missing or unavailable sprites.
+The generated levels reference PNGs in the adjacent `assets/` directory. Keep that directory alongside the JSON when copying an activity. The games resolve asset paths relative to the JSON selected by `?config=` and also accept image data URIs. Serve the arcade folder with its shared renderer and stylesheets.
+
+If diffusion fails, the generator saves the validated text activity and records the provider error under `sprite_error` in its metadata and generation log. If only the background request fails, the character images remain playable against the procedural scene.
 
 ## Test and report
 

@@ -22,10 +22,22 @@
     "hintLabel": "Hint",
     "hint": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second.",
     "options": [
-      "Course calendar \u2014 Final project due Friday at noon.",
-      "Project gallery \u2014 See examples from last year.",
-      "Submission guide \u2014 Upload the report through the course portal.",
-      "Welcome note \u2014 This course has a final project."
-    ]
+      "Course calendar — Final project due Friday at noon.",
+      "Project gallery — See examples from last year.",
+      "Submission guide — Upload the report through the course portal.",
+      "Welcome note — This course has a final project."
+    ],
+    "environment": {
+      "setting_name": "Archive",
+      "floor_style": "stone",
+      "props": [
+        "shelves",
+        "desk_lamps"
+      ],
+      "primary_color": "#454852",
+      "secondary_color": "#52555d",
+      "accent_color": "#bad7ab",
+      "layout": "archive"
+    }
   }
 }

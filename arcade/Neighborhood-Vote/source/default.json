@@ -37,6 +37,18 @@
       "A": "A",
       "B": "B"
     },
-    "prediction": "Majority vote:"
+    "prediction": "Majority vote:",
+    "environment": {
+      "setting_name": "Neighborhood",
+      "floor_style": "turf",
+      "props": [
+        "trees",
+        "brass_rail"
+      ],
+      "primary_color": "#3d6156",
+      "secondary_color": "#466f5f",
+      "accent_color": "#c8d98b",
+      "layout": "party"
+    }
   }
 }

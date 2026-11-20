@@ -37,6 +37,18 @@
     "sources": [
       "Record A: 20 observations.",
       "Record B: 12 positive and 8 negative observations."
-    ]
+    ],
+    "environment": {
+      "setting_name": "Evidence desk",
+      "floor_style": "parquet",
+      "props": [
+        "shelves",
+        "desk_lamps"
+      ],
+      "primary_color": "#453747",
+      "secondary_color": "#654c53",
+      "accent_color": "#e5c081",
+      "layout": "newsroom"
+    }
   }
 }

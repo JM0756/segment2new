@@ -144,6 +144,100 @@
               "pattern": "^#[0-9a-fA-F]{6}$"
             }
           }
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "setting_name",
+            "floor_style",
+            "primary_color",
+            "secondary_color",
+            "accent_color",
+            "props"
+          ],
+          "properties": {
+            "preset": {
+              "const": "space-station"
+            },
+            "setting_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "floor_style": {
+              "enum": [
+                "deck",
+                "dance_tiles",
+                "parquet",
+                "asphalt",
+                "stone",
+                "turf"
+              ]
+            },
+            "primary_color": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "secondary_color": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "accent_color": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "props": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "viewport",
+                  "airlock",
+                  "consoles",
+                  "red_cups",
+                  "dj_booth",
+                  "string_lights",
+                  "dance_tiles",
+                  "velvet_booths",
+                  "brass_rail",
+                  "stage_spotlight",
+                  "barrels",
+                  "rubble",
+                  "trees",
+                  "crates",
+                  "shelves",
+                  "desk_lamps",
+                  "barriers"
+                ]
+              },
+              "minItems": 2,
+              "maxItems": 8,
+              "uniqueItems": true
+            },
+            "layout": {
+              "enum": [
+                "space-station",
+                "speakeasy",
+                "party",
+                "wasteland",
+                "laboratory",
+                "clinical",
+                "newsroom",
+                "archive"
+              ]
+            }
+          }
+        },
+        "backgroundSprite": {
+          "type": "string",
+          "minLength": 1
+        },
+        "class0Sprite": {
+          "type": "string",
+          "minLength": 1
+        },
+        "class1Sprite": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [

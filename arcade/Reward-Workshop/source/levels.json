@@ -2,5 +2,13 @@
   {
     "config": "default.json",
     "tier": 1
+  },
+  {
+    "config": "level2.json",
+    "tier": 2
+  },
+  {
+    "config": "level3.json",
+    "tier": 3
   }
 ]

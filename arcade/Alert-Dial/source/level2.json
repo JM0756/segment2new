@@ -66,6 +66,18 @@
     "options": [
       "Clear",
       "Incident"
-    ]
+    ],
+    "environment": {
+      "setting_name": "Checkpoint",
+      "floor_style": "asphalt",
+      "props": [
+        "barriers",
+        "consoles"
+      ],
+      "primary_color": "#42505d",
+      "secondary_color": "#374552",
+      "accent_color": "#f8c16a",
+      "layout": "clinical"
+    }
   }
 }

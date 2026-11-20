@@ -1,8 +1,8 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Claim-Inspector</title><link rel="stylesheet" href="../../style.css">
-<main><h1 id="title"></h1><div class="score"><b id="team0"></b><strong id="phase"></strong><b id="team1"></b></div>
-<div class="board"><canvas id="arena" width="560" height="144" aria-label="Arena"></canvas><output id="callout"></output></div>
-<p id="subject"></p><div id="detail"></div><div id="sources"></div>
-<label id="dial" hidden>Threshold <input id="slider" type="range" min="0"></label>
-<button id="help">How to Play (?)</button><aside id="guide"><div id="legend"></div><span id="instruction"></span><button id="skip">Skip tutorial</button></aside>
-<footer class="deck"><div class="model"><span class="portrait" aria-hidden="true">▪▪</span> MODEL <b id="metric"></b><div id="meter"></div></div><div id="actions"></div><kbd>[1] / [←] · [2] / [→] · [SPACE]</kbd></footer></main>
-<script src="game_logic.js"></script><script src="sprites.js"></script><script src="game.js"></script><script src="../../animation.js"></script><script src="../../arcade_hud.js"></script></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Claim-Inspector</title><link rel="stylesheet" href="style.css"></head>
+<body><main class="arena-stage"><canvas id="arena" tabindex="0" width="560" height="245" aria-label="Playable arena"></canvas>
+<header class="telemetry"><div><strong id="title"></strong><span id="phase"></span></div><div class="scores"><b id="team0"></b><b id="team1"></b></div><span id="metric"></span><div id="meter"></div></header>
+<section class="task"><strong id="subject"></strong><span id="detail"></span><div id="sources"></div><label id="dial" hidden>Cutoff <input id="slider" type="range" min="0"></label></section>
+<output id="callout" aria-live="polite"></output>
+<aside id="guide" hidden aria-label="Narrator"><strong>GUIDE</strong><p id="instruction" aria-live="polite"></p><div><button id="continue">Continue →</button><button id="skip">SKIP &gt;&gt;</button></div></aside>
+<nav class="keycaps" aria-label="Game controls"><div id="actions"></div><button id="help">[?] Guide</button></nav></main>
+<script src="game_logic.js"></script><script src="../../environment.js"></script><script src="sprites.js"></script><script src="game.js"></script><script src="../../animation.js"></script><script src="../../narrator.js"></script><script src="../../arcade_hud.js"></script></body></html>

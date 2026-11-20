@@ -1,13 +1,13 @@
-"""Generate one PNG sprite using an OpenAI-compatible image endpoint."""
+"""Generate character and environment art through PixelLab or an OpenAI-compatible gateway."""
 import base64
-from collections import deque
+from collections import Counter, deque
 from http.client import HTTPException
 import io
 import json
 import os
 from pathlib import Path
 from time import sleep
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -17,12 +17,21 @@ class ImageGenerationError(Exception):
     pass
 
 
-def cutout(image):
+def clean_sprite_background(image):
+    image = image.convert("RGBA")
     w, h = image.size
     pixels = image.load()
-    corners = [pixels[x, y] for x, y in ((0,0),(w-1,0),(0,h-1),(w-1,h-1))]
-    opaque = [pixel for pixel in corners if pixel[3]]
-    background = tuple(sum(p[c] for p in opaque)/len(opaque) for c in range(3)) if opaque else (255,255,255)
+    border = [pixels[x,y] for x in range(w) for y in (0,h-1)]
+    border.extend(pixels[x,y] for y in range(1,h-1) for x in (0,w-1))
+    opaque = [p[:3] for p in border if p[3] >= 128]
+    if not opaque:
+        return frame_character(image)
+    def bucket(rgb):
+        return tuple(v//16 for v in rgb)
+    dominant = Counter(map(bucket,opaque)).most_common(1)[0][0]
+    samples = [rgb for rgb in opaque if bucket(rgb)==dominant]
+    background = tuple(sum(rgb[i] for rgb in samples)/len(samples) for i in range(3))
+    brightness = sum(background)/3
     alpha = bytearray(image.getchannel("A").tobytes())
     seen = bytearray(w*h)
     queue = deque()
@@ -33,7 +42,7 @@ def cutout(image):
             return
         seen[i] = 1
         r,g,b,_ = pixels[x,y]
-        if not alpha[i] or ((r-background[0])**2 + (g-background[1])**2 + (b-background[2])**2 < 65**2):
+        if not alpha[i] or ((r-background[0])**2 + (g-background[1])**2 + (b-background[2])**2 < 70**2):
             alpha[i] = 0
             queue.append((x,y))
 
@@ -52,10 +61,18 @@ def cutout(image):
     for y in range(h):
         for x in range(w):
             r,g,b,_ = pixels[x,y]
-            if min(r,g,b)>232 and max(r,g,b)-min(r,g,b)<20:
+            if (max(background)-min(background)<24 and max(r,g,b)-min(r,g,b)<18
+                    and abs((r+g+b)/3-brightness)<25):
                 alpha[y*w+x] = 0
     mask = Image.frombytes("L",(w,h),bytes(alpha))
     image.putalpha(Image.composite(mask.filter(ImageFilter.GaussianBlur(.5)), mask, mask))
+    return frame_character(image)
+
+
+cutout = clean_sprite_background
+
+
+def frame_character(image):
     bounds = image.getchannel("A").getbbox()
     canvas = Image.new("RGBA",(128,128))
     if bounds:
@@ -74,31 +91,51 @@ class ImageClient:
         if not self.base.endswith("/v1"):
             self.base += "/v1"
         self.key = os.getenv("IMAGE_API_KEY") or os.getenv("LLM_API_KEY")
+        self.pixel_key = os.getenv("PIXELLAB_API_KEY", "").strip()
+        self.pixel_base = (os.getenv("PIXELLAB_BASE_URL") or "https://api.pixellab.ai/v1").strip().rstrip("/")
         self.model = os.getenv("IMAGE_MODEL", "auto")
 
     def generate(self, prompt, directory, run_slug, slot):
         headers = {"Content-Type": "application/json", "User-Agent": "ur2phd-generator/1.0"}
-        if self.key:
-            headers["Authorization"] = f"Bearer {self.key}"
-        payload = dict(model=self.model, prompt=prompt, size="512x512", n=1, response_format="b64_json")
-        relative = Path("assets") / f"{run_slug}_{slot}.png"
+        scene = slot == "backgroundSprite"
+        if self.pixel_key:
+            endpoint = self.pixel_base + "/generate-image-pixflux"
+            headers["Authorization"] = f"Bearer {self.pixel_key}"
+            size = {"width": 320, "height": 180} if scene else {"width": 128, "height": 128}
+            if not scene:
+                prompt = ("Standardized blocky 2.5D chibi pixel avatar, square head, compact torso, "
+                          "2px dark outline, full body, transparent background. " +
+                          prompt.replace("pure solid #FFFFFF background", "transparent background"))
+            payload = dict(description=prompt, image_size=size, no_background=not scene)
+        else:
+            endpoint = self.base + "/images/generations"
+            if self.key:
+                headers["Authorization"] = f"Bearer {self.key}"
+            payload = dict(model=self.model, prompt=prompt, size="512x512", n=1, response_format="b64_json")
+        suffix = "background" if scene else slot
+        relative = Path("assets") / f"{run_slug}_{suffix}.png"
         target = directory / relative
         try:
-            request = Request(self.base + "/images/generations", json.dumps(payload).encode(), headers)
+            request = Request(endpoint, json.dumps(payload).encode(), headers)
             for attempt in range(2):
                 try:
                     with urlopen(request, timeout=180) as response:
-                        item = json.load(response)["data"][0]
+                        result = json.load(response)
                     break
                 except HTTPError as error:
                     if attempt or error.code not in (429, 502, 503):
                         raise
                     error.close()
                     sleep(10)
-            if item.get("b64_json"):
-                raw_bytes = base64.b64decode(item["b64_json"], validate=True)
+            if self.pixel_key:
+                encoded = result["image"]["base64"]
+                if encoded.startswith("data:"):
+                    encoded = encoded.split(",", 1)[1]
+                raw_bytes = base64.b64decode(encoded, validate=True)
+            elif result["data"][0].get("b64_json"):
+                raw_bytes = base64.b64decode(result["data"][0]["b64_json"], validate=True)
             else:
-                url = item["url"]
+                url = result["data"][0]["url"]
                 if urlsplit(url).scheme not in ("http", "https"):
                     raise ValueError("Expected an HTTP(S) image URL")
                 with urlopen(url, timeout=180) as response:
@@ -110,7 +147,13 @@ class ImageClient:
                 snippet = raw_bytes[:200].decode("utf-8", errors="replace")
                 raise ImageGenerationError(f"Invalid image response: {snippet!r}") from error
             target.parent.mkdir(parents=True, exist_ok=True)
-            cutout(image).save(target, format="PNG")
+            if scene:
+                output = ImageOps.fit(image.convert("RGB"), (320, 180), method=Image.Resampling.NEAREST)
+            elif self.pixel_key and image.getpixel((0,0))[3] == 0:
+                output = frame_character(image)
+            else:
+                output = clean_sprite_background(image)
+            output.save(target, format="PNG")
         except HTTPError as error:
             try:
                 detail = error.read().decode("utf-8", errors="replace").strip()

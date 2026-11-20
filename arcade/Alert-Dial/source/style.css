@@ -1,2 +1,1 @@
-body{font:18px/1.5 system-ui;color:#203043;background:#f5f7fb}main,dialog{max-width:42rem;margin:5vh auto;padding:2rem;background:white;border:1px solid #ccd4dc;border-radius:12px}dialog::backdrop{background:#15243888}button{font:inherit;padding:.5rem .8rem;margin:.25rem;border:1px solid var(--accent);border-radius:.4rem;background:white;color:#182330;cursor:pointer}button[aria-pressed=true]{background:var(--accent);color:white}
-canvas[aria-hidden] { vertical-align: middle; margin-inline: .25em; }
+@import url("../../style.css");

@@ -1,5 +1,1 @@
 @import url("../../style.css");
-body{min-height:100vh;background:repeating-linear-gradient(0deg,#243d40 0 24px,#294448 24px 48px)}
-main,dialog{max-width:48rem;margin:5vh auto;padding:2rem;background:#182b32;color:#f3efd9;border:2px solid #738e81;box-shadow:6px 6px #101c24}
-button{margin:.25rem}dialog::backdrop{background:#0b171ecc}
-canvas[aria-hidden]{vertical-align:middle;margin-inline:.25em}

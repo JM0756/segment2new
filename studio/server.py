@@ -1,9 +1,14 @@
 """Local Arcade Studio. Run with the generator environment's Python."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import base64
+from io import BytesIO
 import mimetypes
+import shutil
+from uuid import uuid4
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from PIL import Image
 import os
-import shlex
 from urllib.error import HTTPError
 from pathlib import Path
 import re
@@ -14,32 +19,13 @@ from threading import Lock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from generator.image_client import clean_sprite_background
 from generator.generate import ARCHETYPES, GAMES, generate, validate
+from generator.settings import load_env
 from generator.llm_client import LLMClient, APIError, normalize_base
 
 progress_messages = {}
 progress_lock = Lock()
-
-
-def load_env(path):
-    if not path.is_file():
-        return
-    for line in path.read_text().splitlines():
-        match = re.fullmatch(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)", line)
-        if match:
-            key, raw = match.groups()
-            if key in os.environ:
-                continue
-            # An inline comment starts after whitespace; keys may contain literal '#'.
-            raw = raw.strip()
-            if raw.startswith(('"', "'")):
-                try:
-                    value = ' '.join(shlex.split(raw, comments=True))
-                except ValueError:
-                    continue
-            else:
-                value = re.split(r"\s+#",raw,maxsplit=1)[0]
-            os.environ[key] = value
 
 
 load_env(ROOT/'.env')
@@ -49,7 +35,62 @@ def public(path):
     return '/' + path.relative_to(ROOT).as_posix()
 
 
+def clean_cached_sprites(folder):
+    """Migrate class artwork only. Scene PNGs must retain their opaque floor."""
+    backgrounds = set()
+    for config in folder.rglob("*.json"):
+        if config.name.endswith(".meta.json"):
+            continue
+        try:
+            theme = json.loads(config.read_text())["theme"]
+            asset = theme.get("backgroundSprite")
+            if asset:
+                backgrounds.add((config.parent / asset).resolve() if not asset.startswith("/")
+                                else (folder.parent / asset.lstrip("/")).resolve())
+        except (KeyError, ValueError, TypeError, OSError, AttributeError):
+            continue
+    cleaned = 0
+    for path in folder.glob("**/assets/*.png"):
+        if path.resolve() in backgrounds or re.search(r"(?:^|[_-])(background(?:sprite)?|scene|arena)$", path.stem, re.I):
+            continue
+        if path.is_symlink() or folder.resolve() not in path.resolve().parents:
+            continue
+        try:
+            with Image.open(path) as source:
+                image = source.convert("RGBA")
+                if not image.getpixel((0,0))[3]:
+                    continue
+                result = clean_sprite_background(image)
+            with NamedTemporaryFile(dir=path.parent, delete=False) as temp:
+                temporary = Path(temp.name)
+            try:
+                result.save(temporary, format="PNG")
+                temporary.chmod(path.stat().st_mode)
+                temporary.replace(path)
+                cleaned += 1
+            finally:
+                temporary.unlink(missing_ok=True)
+        except (OSError, ValueError, Image.DecompressionBombError) as error:
+            print(f"Could not clean sprite {path.name}: {error}", file=sys.stderr)
+    return cleaned
+
+
+library_lock = Lock()
+_sessions = {}
+
+def draft_root():
+    with library_lock:
+        if ROOT not in _sessions:
+            base = ROOT/'generated/.tmp'
+            base.mkdir(parents=True, exist_ok=True)
+            _sessions[ROOT] = TemporaryDirectory(dir=base, prefix='session-')
+        return Path(_sessions[ROOT].name)
+
 def catalog():
+    with library_lock:
+        return _catalog()
+
+def _catalog(include_versions=False):
     games = []
     for game in ARCHETYPES:
         source = GAMES / game / 'source'
@@ -57,37 +98,173 @@ def catalog():
             continue
         folder = ROOT / 'generated' / game
         legacy = ROOT / "generated" / "Orbit-Patrol"
-        configs = [source / 'default.json', source / 'level2.json', *sorted(folder.glob('*.json'))]
+        configs = [source/'default.json', source/'level2.json', source/'level3.json', *folder.glob('*.json')]
+        configs.extend(path for path in folder.glob('*/*_L[123].json') if re.fullmatch('[0-9a-f]{32}',path.parent.name))
         if game == "Feature-Classifier":
             configs.extend(sorted(legacy.glob("*.json")))
         groups = {}
         configs.sort(key=lambda p: p.stat().st_mtime_ns if p.exists() else 0)
         for path in configs:
-            if not path.exists() or path.name.endswith('.meta.json'):
+            if path.is_symlink() or not path.exists() or path.name.endswith('.meta.json'):
                 continue
             try:
                 cfg = json.loads(path.read_text())
                 theme = cfg['theme']
                 level = re.search(r'_L([123])$', path.stem)
-                tier = int(level[1]) if level else (2 if path.name == 'level2.json' else 1)
+                tier = int(level[1]) if level else ({'level2.json':2,'level3.json':3}.get(path.name,1))
                 group = path.stem[:level.start()] if level else path.stem
                 meta = path.with_suffix('.meta.json')
                 info = json.loads(meta.read_text()) if meta.exists() else {}
                 topic = info.get('topic', game)
                 setting = info.get('theme', theme['title'])
-                key = 'baseline' if path.parent == source else (topic.strip().casefold(),setting.strip().casefold())
+                if path.parent == source:
+                    key = 'baseline'
+                elif path.parent.parent == folder:
+                    key = (path.parent,group)
+                else:
+                    key = (topic.strip().casefold(),setting.strip().casefold())
                 item = groups.setdefault(key, dict(title=theme['title'], levels={}, game=game,
                                                     topic=topic, theme=setting, accent=theme.get('accent'), thumbnail=None))
+                if include_versions:
+                    item.setdefault('versions', []).append(public(path))
                 item['levels'][tier] = public(path)
-                if tier == 1 or 1 not in item['levels']:
-                    item.update(title=theme['title'], accent=theme.get('accent'),
-                                thumbnail=theme.get('sprites', {}).get('class0_asset'))
+                cover = info.get('studio_cover',False)
+                if cover or not item.get('cover_selected') and (tier == 1 or 1 not in item['levels']):
+                    item['cover_selected'] = cover
+                    item['preview_path'] = public(path)
+                    for index in (0,1):
+                        field = f'class{index}Sprite'
+                        asset = theme.get(field) or theme.get('sprites', {}).get(f'class{index}_asset')
+                        item[field] = urljoin(public(path), asset) if asset else None
+                    item.update(title=theme['title'], setting=theme.get('setting'), name=theme.get('name'), accent=theme.get('accent'),
+                                thumbnail=item['class0Sprite'],
+                                environment=theme.get('environment'), palette=theme.get('palette'),
+                                backgroundSprite=urljoin(public(path), theme['backgroundSprite'])
+                                    if theme.get('backgroundSprite') else None)
             except (ValueError, KeyError, TypeError, OSError):
                 continue
         if 'baseline' in groups:
             games.append(groups.pop('baseline'))
         games.extend(groups.values())
     return games
+
+
+def artwork(config):
+    theme = config['theme']
+    for slot in ('class0','class1','background'):
+        url = theme.get(slot+'Sprite') or theme.get('sprites', {}).get(slot+'_asset')
+        if url:
+            yield slot, url
+
+def image_path(config_path, url):
+    location = urlsplit(urljoin(public(config_path),url))
+    if location.scheme or location.netloc:
+        raise ValueError('Artwork must be a local PNG.')
+    path = (ROOT/unquote(location.path).lstrip('/')).resolve()
+    if path.suffix.lower() != '.png' or not any(base in path.parents for base in [ROOT/'generated',GAMES]):
+        raise ValueError('Invalid artwork path.')
+    return path
+
+def copy_art(config, original_path, directory):
+    theme = config['theme']
+    for slot,url in list(artwork(config)):
+        relative = f'assets/{slot}.png'
+        target = directory/relative
+        target.parent.mkdir(exist_ok=True)
+        if url.startswith('data:image/'):
+            header,encoded = url.split(',',1)
+            if not header.endswith(';base64'):
+                raise ValueError('Expected base64 image data.')
+            with Image.open(BytesIO(base64.b64decode(encoded,validate=True))) as image:
+                image.convert('RGBA').save(target,format='PNG')
+        else:
+            shutil.copyfile(image_path(original_path,url),target)
+        theme[slot+'Sprite'] = relative
+        if slot != 'background':
+            theme.setdefault('sprites', {})[slot+'_asset'] = relative
+
+def bundle_levels(folder):
+    return {int(path.stem[-1]):public(path) for path in sorted(folder.glob('*_L[123].json'))}
+
+def local_artwork(config_path):
+    config = json.loads(config_path.read_text())
+    for _,asset in artwork(config):
+        try:
+            yield image_path(config_path,asset)
+        except ValueError:
+            continue  # Inline and remote images own no local file.
+
+
+def delete_saved_game(game, path, url):
+    destination = ROOT/'generated'/game
+    item = next((i for i in _catalog(include_versions=True) if i['game']==game and url in i['levels'].values()),None)
+    if not item or public(path)!=url or ROOT/'generated' not in path.parents:
+        raise ValueError('Select a saved game.')
+    if path.parent.parent==destination and re.fullmatch('[0-9a-f]{32}',path.parent.name):
+        shutil.rmtree(path.parent)
+    else:
+        # Older flat saves can share PNGs across several games.
+        owned = {(ROOT/level.lstrip('/')).resolve() for level in item['versions']}
+        if any(cfg.parent not in (destination,ROOT/'generated/Orbit-Patrol') for cfg in owned):
+            raise ValueError('Invalid saved level path.')
+        assets = {asset for cfg in owned for asset in local_artwork(cfg)}
+        for cfg in (ROOT/'generated').rglob('*.json'):
+            if cfg in owned or cfg.name.endswith('.meta.json'):
+                continue
+            try:
+                assets.difference_update(local_artwork(cfg))
+            except (ValueError,KeyError,TypeError,OSError):
+                continue
+        for cfg in owned:
+            cfg.unlink()
+            cfg.with_suffix('.meta.json').unlink(missing_ok=True)
+        for image in assets:
+            if image.parent == path.parent/'assets':
+                image.unlink(missing_ok=True)
+    return dict(ok=True)
+
+
+def save_game(game, path, url, drafts):
+    destination = ROOT/'generated'/game
+    if (public(path)!=url or path.parent.parent!=drafts or not path.is_file()
+            or not re.fullmatch('[0-9a-f]{32}',path.parent.name) or url not in bundle_levels(path.parent).values()):
+        raise ValueError('Select a generated draft.')
+    saved = destination/path.parent.name
+    destination.mkdir(parents=True,exist_ok=True)
+    if not saved.exists():
+        with TemporaryDirectory(dir=destination,prefix='.saving-') as tmp:
+            staged = Path(tmp)/'game'
+            shutil.copytree(path.parent,staged)
+            for url in bundle_levels(path.parent).values():
+                source = ROOT/url.lstrip('/')
+                config = json.loads(source.read_text())
+                for _,asset in artwork(config):
+                    image = image_path(source,asset)
+                    if not image.is_relative_to(path.parent) or not image.is_file() or asset.startswith('/'):
+                        raise ValueError('The draft contains unavailable artwork.')
+            for metadata in staged.glob('*.meta.json'):
+                info = json.loads(metadata.read_text())
+                if metadata.name == path.with_suffix('.meta.json').name:
+                    info['studio_cover'] = True
+                for key,value in list(info.items()):
+                    if re.fullmatch(r'source_level[123]_file',key):
+                        info[key] = str((saved/Path(value).name).relative_to(ROOT))
+                metadata.write_text(json.dumps(info,indent=2)+'\n')
+            staged.rename(saved)
+    return dict(ok=True,config_path=public(saved/path.name),levels=bundle_levels(saved))
+
+
+
+def library_change(data, delete=False):
+    game, url = data['game'],data['path']
+    if game not in ARCHETYPES:
+        raise ValueError('Unknown game')
+    path = (ROOT/url.lstrip('/')).resolve()
+    drafts = draft_root()/game
+    with library_lock:
+        if delete:
+            return delete_saved_game(game,path,url)
+        return save_game(game,path,url,drafts)
 
 
 def operation(endpoint, data):
@@ -105,45 +282,43 @@ def operation(endpoint, data):
                 progress_messages[job] = message
     options = dict(root=ROOT, log=ROOT/'generator/logs/generation_logs.jsonl',
                    generate_sprites=bool(data.get('sprites')), progress=progress, raise_on_failure=True)
-    warning = None
-    if endpoint == '/api/generate':
-        args = client, game, data['topic'], data['theme']
-        path = generate(*args, 1, **options)
-        if data.get('pair'):
-            try:
-                generate(*args, 2, previous=path, **options)
-            except APIError as error:
-                warning = str(error)
-    else:
-        choices = {url:level for item in catalog() if item['game']==game for level,url in item['levels'].items()}
-        selected = data['path']
-        if selected in choices:
-            level = choices[selected]
+    directory = draft_root()/game/uuid4().hex
+    directory.mkdir(parents=True)
+    options['output_dir'] = directory
+    level = 1
+    try:
+        if endpoint == '/api/generate':
+            topic,setting = data['topic'],data['theme']
+            path = generate(client,game,topic,setting,level,**options)
         else:
-            # Previous turns can reference a revision superseded in the deduplicated drawer.
-            candidate = (ROOT / selected.lstrip('/')).resolve()
-            match = re.search(r'_L([123])\.json$', candidate.name)
-            allowed = [ROOT/'generated'/game]
-            if game == 'Feature-Classifier':
-                allowed.append(ROOT/'generated'/'Orbit-Patrol')
-            if not match or candidate.parent not in allowed or public(candidate) != selected or not candidate.is_file():
+            selected = data['path']
+            candidate = (ROOT/selected.lstrip('/')).resolve()
+            levels = {url:tier for item in catalog() if item['game']==game for tier,url in item['levels'].items()}
+            if candidate.parent.parent == draft_root()/game:
+                levels.update({url:tier for tier,url in bundle_levels(candidate.parent).items()})
+            if public(candidate)!=selected or selected not in levels:
                 raise ValueError('Unknown activity revision')
-            level = int(match[1])
-        original = json.loads((ROOT / selected[1:]).read_text())
-        if original.get('archetype') == 'orbit' and game == 'Feature-Classifier':
-            original['archetype'] = 'classifier'
-        options['generate_sprites'] = data.get('sprites', bool(original['theme'].get('sprites')))
-        if not options['generate_sprites']:
-            sprites = original['theme'].get('sprites', {})
-            for slot in ('class0_asset', 'class1_asset'):
-                if sprites.get(slot):
-                    sprites[slot] = urljoin(selected, sprites[slot])
-        path = generate(client, game, "Revise activity", original["theme"]["title"], level,
-                        revision=original, instruction=data['message'], **options)
+            level = levels[selected]
+            original = json.loads(candidate.read_text())
+            if original['archetype']=='orbit' and game=='Feature-Classifier':
+                original['archetype']='classifier'
+            topic,setting = 'Revise activity',original['theme']['title']
+            options['generate_sprites'] = data.get('sprites',bool(list(artwork(original))))
+            if not options['generate_sprites']:
+                copy_art(original,candidate,directory)
+            path = generate(client,game,topic,setting,level,revision=original,instruction=data['message'],**options)
+        options['generate_sprites'] = False  # Every tier inherits the first generated artwork.
+        for tier in (1,2,3):
+            if tier != level:
+                generate(client,game,topic,setting,tier,previous=path,**options)
+    except Exception:
+        shutil.rmtree(directory)
+        raise
     cfg = json.loads(path.read_text())
     meta = json.loads(path.with_suffix('.meta.json').read_text())
     lessons = {
         'Feature-Classifier':'Learn to distinguish a reliable feature from a misleading correlation.',
+        'Signal-Sorter':'Improve training data by filtering out noisy samples.',
         'Alert-Dial':'Adjust the threshold to balance false alarms and missed incidents.',
         'Claim-Inspector':'Check each claim against the evidence before choosing a verdict.',
         'Neighborhood-Vote':'Predict a label from the nearest neighbors.',
@@ -157,7 +332,7 @@ def operation(endpoint, data):
         summary += ' You’ll work with ' + ', '.join(labels[:3]) + '.'
     summary += ' ' + lessons[game]
     return dict(ok=True, config_path=public(path), config=cfg, summary=summary,
-                message=warning or meta.get('sprite_error'))
+                levels=bundle_levels(directory),message=meta.get('sprite_error'))
 
 
 def gateway_status():
@@ -174,7 +349,8 @@ def gateway_status():
     except (OSError, ValueError):
         status = None
     return dict(model=client.model, base_url=client.base, online=status is not None,
-                http_status=status, auth_required=status in (401,403))
+                http_status=status, auth_required=status in (401,403),
+                pixellab_configured=bool(os.getenv("PIXELLAB_API_KEY", "").strip()))
 
 
 def configure_gateway(data):
@@ -185,6 +361,11 @@ def configure_gateway(data):
     key = data.get('api_key', '').strip()
     if any(c in key for c in '\r\n'):
         raise ValueError('Invalid key')
+    pixel_key = data.get('pixellab_api_key', '').strip()
+    if any(c in pixel_key for c in '\r\n'):
+        raise ValueError('Invalid PixelLab key')
+    if pixel_key:
+        os.environ['PIXELLAB_API_KEY'] = pixel_key
     old = urlsplit(LLMClient().base)
     if (url.scheme,url.netloc) != (old.scheme,old.netloc) and not key:
         os.environ.pop('LLM_API_KEY',None)
@@ -204,7 +385,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options','nosniff')
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError,ConnectionResetError):
+            pass  # The browser navigated away while the previous frame was loading.
 
     def local(self):
         return self.headers.get('Host') in ('localhost:8000','127.0.0.1:8000')
@@ -228,10 +412,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(404,dict(ok=False,error="Unknown route"))
         self.respond(200,path.read_bytes(),mimetypes.guess_type(path.name)[0] if path.suffix!='.json' else 'application/json; charset=utf-8')
 
+    def do_DELETE(self):
+        if self.path != '/api/saved-game':
+            return self.respond(404,dict(ok=False,error='Unknown route'))
+        self.change_library_or_generate(delete=True)
+
     def do_POST(self):
+        self.change_library_or_generate()
+
+    def change_library_or_generate(self, delete=False):
         if not self.local() or self.headers.get('Origin') not in (None,'http://'+self.headers['Host']):
             return self.respond(403,dict(ok=False,error="Local requests only"))
-        if self.path not in ('/api/generate','/api/chat-refine','/api/settings'):
+        if self.path not in ('/api/generate','/api/chat-refine','/api/settings','/api/save-game') and not delete:
             return self.respond(404,dict(ok=False,error="Unknown route"))
         try:
             size=int(self.headers.get('Content-Length',0))
@@ -239,7 +431,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Expected a JSON request under 64 KiB')
             data=json.loads(self.rfile.read(size))
             try:
-                result=configure_gateway(data) if self.path=='/api/settings' else operation(self.path,data)
+                if delete or self.path=='/api/save-game':
+                    result=library_change(data,delete)
+                else:
+                    result=configure_gateway(data) if self.path=='/api/settings' else operation(self.path,data)
             finally:
                 if isinstance(data, dict) and isinstance(data.get('job'), str):
                     with progress_lock:
@@ -252,5 +447,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print('Arcade Studio at http://localhost:8000/',flush=True)
-    ThreadingHTTPServer(('127.0.0.1',8000),Handler).serve_forever()
+    with ThreadingHTTPServer(('127.0.0.1',8000),Handler) as server:
+        # The port is exclusive. Drafts from a previous Studio process can be reclaimed.
+        for stale in (ROOT/'generated/.tmp').glob('session-*'):
+            if stale.is_dir() and not stale.is_symlink():
+                shutil.rmtree(stale)
+        clean_cached_sprites(ROOT/'generated')
+        print('Arcade Studio at http://localhost:8000/',flush=True)
+        server.serve_forever()

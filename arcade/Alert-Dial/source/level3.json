@@ -1,0 +1,87 @@
+{
+  "archetype": "threshold",
+  "mechanics": {
+    "records": [
+      [
+        10,
+        0
+      ],
+      [
+        20,
+        0
+      ],
+      [
+        35,
+        0
+      ],
+      [
+        41,
+        0
+      ],
+      [
+        46,
+        0
+      ],
+      [
+        48,
+        1
+      ],
+      [
+        50,
+        0
+      ],
+      [
+        53,
+        1
+      ],
+      [
+        55,
+        1
+      ]
+    ],
+    "cutoffs": [
+      35,
+      41,
+      46,
+      48,
+      50,
+      53,
+      55
+    ],
+    "minHits": 2,
+    "falseAlarmCost": 5,
+    "missCost": 2
+  },
+  "theme": {
+    "title": "Alert Dial",
+    "setting": "Tune the checkpoint cutoff to detect incidents while limiting false alarms.",
+    "accent": "#365da3",
+    "tutorial": "Move the dial and inspect precision and recall.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "Scores at or above the cutoff trigger alerts.",
+    "options": [
+      "Clear",
+      "Incident"
+    ],
+    "environment": {
+      "setting_name": "Checkpoint",
+      "floor_style": "asphalt",
+      "props": [
+        "barriers",
+        "consoles"
+      ],
+      "primary_color": "#42505d",
+      "secondary_color": "#374552",
+      "accent_color": "#f8c16a",
+      "layout": "clinical"
+    }
+  }
+}

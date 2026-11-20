@@ -21,11 +21,11 @@ frame.addEventListener('load', async () => {
 frame.src = url;
 ```
 
-The three arena games share arcade_hud.js and style.css. Serve the arcade directory structure together. Use the config query parameter to select a saved activity; sprite paths resolve relative to that JSON. Hosts can also send LOAD_CONFIG and listen for GAME_EVENT from the iframe.
+The four Studio archetypes and the three additional standalone games share arcade_hud.js, narrator.js, and style.css. Signal-Sorter introduces clean and noisy labels using a single visible cue. Serve the arcade directory structure together. Use the config query parameter to select a saved activity; sprite paths resolve relative to that JSON. Hosts can also send LOAD_CONFIG and listen for GAME_EVENT from the iframe.
 
 ## Adding a New Archetype
 
-1. Start from the Alert-Dial source layout. Define a stable archetype ID, mechanics, and independently editable theme in the schema. Include neutral, playable default.json and level2.json fixtures, a levels.json difficulty guide, and a standalone validate.py. Validate cross-field relationships as well as JSON types.
+1. Start from the Alert-Dial source layout. Define a stable archetype ID, mechanics, and independently editable theme in the schema. Include neutral, playable default.json, level2.json, and level3.json fixtures, a levels.json difficulty guide, and a standalone validate.py. Validate cross-field relationships as well as JSON types.
 2. Implement createRound(config) in game.js. Keep scoring and transitions independent of the DOM. Return view(), act(index), and submit(). The view supplies phase, subject, two team names, action labels, score, metric, value (0–100), tutorial guidance and completion state. Alert-Dial demonstrates a continuous control and Claim-Inspector demonstrates evidence inspection.
 3. Use the shared HUD entry point and arcade/style.css. For an original control, extend the view and renderer together. Keep generated strings in textContent. Test the default and shifted distribution, a failing decision, and a winning decision.
 4. Register the difficulty counts and prompt guidance in generator/prompts.py and the semantic checks in generator/generate.py. The Studio discovers registered games and groups generated levels by filename. Run both test suites from the repository root.

@@ -95,6 +95,20 @@
       "pulse": "Pulse",
       "fast": "Fast",
       "slow": "Slow"
+    },
+    "environment": {
+      "setting_name": "Orbital Station",
+      "floor_style": "deck",
+      "props": [
+        "viewport",
+        "airlock",
+        "consoles"
+      ],
+      "primary_color": "#283d58",
+      "secondary_color": "#405775",
+      "accent_color": "#71e6e2",
+      "preset": "space-station",
+      "layout": "space-station"
     }
   }
 }

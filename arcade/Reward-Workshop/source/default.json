@@ -57,6 +57,18 @@
       "Token loop",
       "Deliver"
     ],
-    "axes": "Tokens / deliveries / time"
+    "axes": "Tokens / deliveries / time",
+    "environment": {
+      "setting_name": "Workshop",
+      "floor_style": "deck",
+      "props": [
+        "crates",
+        "consoles"
+      ],
+      "primary_color": "#324856",
+      "secondary_color": "#435e64",
+      "accent_color": "#e9ac71",
+      "layout": "laboratory"
+    }
   }
 }
