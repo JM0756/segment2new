@@ -14,7 +14,7 @@ KNOBS = {
     "Reward-Workshop": ("routes", (3, 4, 5)),
     "Search-Desk": ("order", (2, 3, 4)),
 }
-ORBIT = {1: (2, (6, 6), (1, 1), 1), 2: (3, (8, 10), (.75, .9), 3),
+CLASSIFIER = {1: (2, (6, 6), (1, 1), 1), 2: (3, (8, 10), (.75, .9), 3),
          3: (3, (11, 12), (.5, .75), 4)}
 
 
@@ -23,24 +23,30 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         field, targets = KNOBS[archetype]
         knobs = f"Use exactly {targets[level-1]} entries in mechanics.{field}."
     else:
-        features, pool, bias, tests = ORBIT[level]
+        features, pool, bias, tests = CLASSIFIER[level]
         knobs = f"Use {features} features, pool size within {pool}, bias within {bias}, and {tests} curveballs."
     inputs = {"topic": topic, "theme": theme, "level": f"level_{level}",
               "constraints": [TIERS[level], knobs]}
     if generate_sprites:
         inputs["constraints"].append(
             "In theme.sprites, supply class0_prompt and class1_prompt for the first two "
-            "theme.options (or classLabels in sorted key order). For each use: 2D flat vector arcade "
-            "game sprite of <entity>, centered icon, bold clean outlines, minimal shading, "
-            "isolated on solid dark background, no text. Omit asset paths."
+            "theme.options (or classLabels in sorted key order). Describe each entity using this exact style: "
+            "16-bit chibi pixel art game character sprite, full-body three-quarter side view, "
+            "bold dark pixel outlines, vibrant cel-shaded colors, centered, isolated on a solid "
+            "pure white background #FFFFFF, no ground, no shadow, no text. Omit asset paths."
         )
     else:
         inputs["constraints"].append("Omit theme.sprites.")
+    if archetype == "Alert-Dial":
+        inputs["constraints"].append("Set falseAlarmCost and missCost. At Level 2 shift the incident base rate and use asymmetric error costs.")
+    if archetype == "Claim-Inspector":
+        inputs["constraints"].append("Provide retrieved evidence in theme.sources. Include supported, contradicted and unsupported claims. At Level 2 include subtle extrapolations.")
+    inputs["constraints"].append("Set theme.palette floor, stripe, team0 and team1 to contrasting six-digit hex colors suited to the setting.")
     for name in ("config_schema", "default", "levels"):
         path = source / (name + ".json")
         inputs[name] = json.loads(path.read_text())
     inputs["evaluation_rules"] = {
-        "Orbit-Patrol": "One true and one spurious binary feature. Add one noise feature at higher levels. Supply featureLabels for every feature name and value. Curveballs must specify all features.",
+        "Feature-Classifier": "One true and one spurious binary feature. Add one noise feature at higher levels. Supply featureLabels for every feature name and value. Curveballs must specify all features.",
         "Alert-Dial": "A winning cutoff flags at least minHits records, all positive.",
         "Claim-Inspector": "Each claim has one answer index in theme.options. Match claims and answers in sequence.",
         "Neighborhood-Vote": "Select k closest positions to target. Classes align with positions and have visible classLabels.",

@@ -1,66 +1,29 @@
-const panel=document.querySelector('section'), statusLine=document.querySelector('[role=status]'), dialog=document.querySelector('dialog');
-let m,t,picks,origin,revision=0;
-function emit(event,detail={}) {
-  if(origin) parent.postMessage({type:'GAME_EVENT',archetype:'threshold',event,detail},origin);
+function createRound({mechanics:m,theme:t}) {
+  const stops=[...new Set(m.cutoffs)].sort((a,b)=>a-b);
+  let i=0, moves=0, note='',done=false;
+  function stats(index) {
+    let hits=0,fp=0,miss=0;
+    for(const [score,label] of m.records) {
+      if(score>=stops[index]) {if(label)hits++;else fp++;}
+      else if(label)miss++;
+    }
+    return {hits,fp,miss,cost:fp*(m.falseAlarmCost||1)+miss*(m.missCost||1)};
+  }
+  function tune(index){i=Math.min(stops.length-1,Math.max(0,index));moves++;done=false;note='';}
+  return {
+    view(){
+      const {hits,fp,miss,cost}=stats(i);
+      return {phase:'Checkpoint',score:[hits,fp],names:t.options,actions:['Lower cutoff','Raise cutoff'],
+        subject:'Gate ≥ '+stops[i]+'   |   Scores: '+m.records.map(r=>r[0]).join(' · '),
+        metric:'Alert Precision',value:Math.round(100*hits/(hits+fp||1)),range:[i,stops.length-1],
+        detail:'Recall '+Math.round(100*hits/(hits+miss||1))+'% · Missed '+miss+' · Cost '+cost+
+          ' (false alarm ×'+(m.falseAlarmCost||1)+', miss ×'+(m.missCost||1)+')',
+        actors:m.records.map(([s,c])=>({slot:c,label:String(s)})),note,done,
+        guide:moves?'Compare precision and recall; submit the lowest-cost setting.':'Move the threshold dial to change which agents trigger alerts.',
+        submit:'Evaluate checkpoint'};
+    },tune,act(n){tune(i+(n?1:-1));},
+    submit(){const cost=stats(i).cost;done=cost===Math.min(...stops.map((_,j)=>stats(j).cost));
+      note=done?'CHECKPOINT CLEAR!':stats(i).fp?'FALSE ALARM! Try a higher cutoff.':'MISSED INCIDENT! Try a lower cutoff.';}
+  };
 }
-function button(parent,label,action) {
-  const b=document.createElement('button');
-  b.textContent=label; b.onclick=action; parent.append(b); return b;
-}
-function choices() { return m.cutoffs.map(String); }
-function tutorial() {
-  dialog.replaceChildren();
-  const prompt=document.createElement('p'); prompt.textContent=t.tutorial+' '+t.practice; dialog.append(prompt);
-  button(dialog,choices()[0],()=>{advance.disabled=false;});
-  const advance=button(dialog,t.begin,()=>dialog.close()); advance.disabled=true;
-  button(dialog,t.skip,()=>dialog.close()); dialog.showModal();
-}
-function render() {
-  panel.replaceChildren();
-  const description=document.createElement('p');
-  m.records.forEach(([score, slot], i) => {
-    if (i) description.append(' | ');
-    ArcadeSprites.draw(description, slot, spriteImages);
-    description.append(score+' · '+t.options[slot]);
-  });
-  panel.append(description);
-  choices().forEach((label,i)=>{
-    const b=button(panel,label,()=>{
-      picks=[i];
-      emit('action',{kind:'select',index:i}); render();
-    });
-    b.setAttribute('aria-pressed',String(picks.includes(i)));
-  });
-  button(panel,t.check,()=>{
-    const won=evaluateSelection(m,picks);
-    emit('action',{kind:'submit',picks:[...picks]});
-    statusLine.textContent=won?t.success:t.failure; emit(won?'win':'fail');
-    if(won){panel.replaceChildren(); button(panel,t.again,()=>start(false));}
-  });
-  button(panel,t.hintLabel,()=>{statusLine.textContent=t.hint; emit('hint_shown');});
-  button(panel,t.guide,tutorial);
-}
-function start(showGuide) {
-  picks=[]; statusLine.textContent=''; document.querySelector('h1').textContent=t.title;
-  document.documentElement.style.setProperty('--accent',t.accent); render(); emit('start');
-  if(dialog.open) dialog.close();
-  if(showGuide) tutorial();
-}
-let spriteImages = [];
-async function load(config) {
-  if(config.archetype!=='threshold') throw Error('Wrong archetype');
-  const current = ++revision;
-  const sprites = config.theme?.sprites;
-  const images = sprites?.class0_asset || sprites?.class1_asset
-    ? await ArcadeSprites.preload(sprites, configPath) : [];
-  if (current !== revision) return;
-  spriteImages = images;
-  m=config.mechanics;t=config.theme;start(true);
-}
-window.addEventListener('message',e=>{
-  if(e.source!==parent || parent===window || e.data?.type!=='LOAD_CONFIG') return;
-  if(origin && origin!==e.origin) return;
-  origin=e.origin; load(e.data.config);
-});
-const configPath = new URLSearchParams(window.location.search).get('config') || 'default.json';
-fetch(configPath).then(r=>r.json()).then(c=>{if(!revision) load(c);});
+if(typeof module!=='undefined')module.exports={createRound};

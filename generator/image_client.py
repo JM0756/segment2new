@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 from time import sleep
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -14,6 +14,16 @@ from urllib.request import Request, urlopen
 
 class ImageGenerationError(Exception):
     pass
+
+
+def cutout(image):
+    w, h = image.size
+    for point in ((0, 0), (w-1, 0), (0, h-1), (w-1, h-1)):
+        ImageDraw.floodfill(image, point, (0, 0, 0, 0), thresh=35)
+    bounds = image.getchannel("A").getbbox()
+    if bounds:
+        return ImageOps.expand(image.crop(bounds), border=2, fill=(0, 0, 0, 0))
+    return image
 
 
 class ImageClient:
@@ -59,7 +69,7 @@ class ImageClient:
                 snippet = raw_bytes[:200].decode("utf-8", errors="replace")
                 raise ImageGenerationError(f"Invalid image response: {snippet!r}") from error
             target.parent.mkdir(parents=True, exist_ok=True)
-            image.save(target, format="PNG")
+            cutout(image).save(target, format="PNG")
         except HTTPError as error:
             try:
                 detail = error.read().decode("utf-8", errors="replace").strip()

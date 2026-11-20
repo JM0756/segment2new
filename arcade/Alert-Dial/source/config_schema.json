@@ -36,6 +36,14 @@
         },
         "minHits": {
           "type": "integer"
+        },
+        "falseAlarmCost": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "missCost": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "required": [
@@ -127,6 +135,28 @@
             },
             "class1_asset": {
               "type": "string"
+            }
+          }
+        },
+        "palette": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "floor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "stripe": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "team0": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "team1": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
             }
           }
         }

@@ -7,7 +7,15 @@ HERE = Path(__file__).resolve().parent
 SCHEMA = json.loads((HERE / "config_schema.json").read_text())
 
 def validate(config):
-    return [error.message for error in Draft202012Validator(SCHEMA).iter_errors(config)]
+    errors = [error.message for error in Draft202012Validator(SCHEMA).iter_errors(config)]
+    if errors:
+        return errors
+    mechanics, theme = config["mechanics"], config["theme"]
+    if len(theme["claims"]) != len(mechanics["answers"]):
+        errors.append("Provide one verdict per claim.")
+    if any(index not in range(len(theme["options"])) for index in mechanics["answers"]):
+        errors.append("Every verdict must name an available option.")
+    return errors
 
 if __name__ == "__main__":
     errors = []

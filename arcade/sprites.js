@@ -31,6 +31,7 @@ const ArcadeSprites = {
     canvas.setAttribute('aria-hidden', 'true');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
     const image = images[slot];
     if (image?.complete && image.naturalWidth > 0) {
       const scale = 2 * radius / Math.max(image.naturalWidth, image.naturalHeight);

@@ -36,13 +36,15 @@
       90,
       100
     ],
-    "minHits": 2
+    "minHits": 2,
+    "falseAlarmCost": 1,
+    "missCost": 1
   },
   "theme": {
     "title": "Alert Dial",
-    "setting": "Choose a score cutoff for a spam filter. Block at least two spam messages while blocking zero real messages. Higher scores indicate more suspected spam.",
+    "setting": "Tune the checkpoint cutoff to detect incidents while limiting false alarms.",
     "accent": "#365da3",
-    "tutorial": "Choose a score cutoff for a spam filter. Block at least two spam messages while blocking zero real messages. Higher scores indicate more suspected spam.",
+    "tutorial": "Move the dial and inspect precision and recall.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
     "skip": "Skip tutorial",
@@ -52,10 +54,10 @@
     "success": "Goal reached.",
     "failure": "Try a different selection.",
     "hintLabel": "Hint",
-    "hint": "Choose a score cutoff for a spam filter. Block at least two spam messages while blocking zero real messages. Higher scores indicate more suspected spam.",
+    "hint": "Scores at or above the cutoff trigger alerts.",
     "options": [
-      "Real",
-      "Spam"
+      "Clear",
+      "Incident"
     ]
   }
 }

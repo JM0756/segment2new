@@ -26,7 +26,7 @@ def default(game):
     return json.loads((ARCADE / game / "source/default.json").read_text())
 
 
-def run(tmp_path, responses, game="Orbit-Patrol", level=1, previous=None):
+def run(tmp_path, responses, game="Feature-Classifier", level=1, previous=None):
     client = Mock(model="mock-model")
     client.complete.side_effect = responses
     log = tmp_path / "runs.jsonl"
@@ -49,7 +49,7 @@ def test_first_pass(tmp_path, game):
 
 
 def test_validator_error_is_returned_verbatim(tmp_path):
-    cfg = default("Orbit-Patrol")
+    cfg = default("Feature-Classifier")
     bad = copy.deepcopy(cfg)
     del bad["theme"]["title"]
     path, row, client = run(tmp_path, [json.dumps(bad), json.dumps(cfg)])
@@ -94,8 +94,8 @@ def test_metrics(tmp_path):
 
 
 @pytest.mark.parametrize("level,size,bias,count", [(2, 8, .8, 3), (3, 12, .6, 4)])
-def test_orbit_advanced_tiers(tmp_path, level, size, bias, count):
-    cfg = default("Orbit-Patrol")
+def test_classifier_advanced_tiers(tmp_path, level, size, bias, count):
+    cfg = default("Feature-Classifier")
     m = cfg["mechanics"]
     m["features"].append({"name":"size", "values":["small","large"], "role":"noise"})
     cfg["theme"]["featureLabels"].update(size="Badge", small="Brass", large="Silver")
@@ -220,3 +220,23 @@ def test_image_conversion_after_retry(tmp_path, monkeypatch, image_format):
     assert send.call_count == 2
     with Image.open(tmp_path / asset) as image:
         assert (image.format, image.mode, image.size) == ("PNG", "RGBA", (4, 3))
+
+def test_corner_cutout_preserves_enclosed_white():
+    from generator.image_client import cutout
+    image = Image.new("RGBA", (20, 20), "white")
+    image.paste("black", (7, 7, 13, 13))
+    image.putpixel((9, 9), (255, 255, 255, 255))
+    result = cutout(image)
+    assert result.size == (10, 10)
+    assert result.getpixel((0, 0))[3] == 0
+    assert result.getpixel((4, 4)) == (255, 255, 255, 255)
+
+
+def test_dynamic_feature_names(tmp_path):
+    text = json.dumps(default("Feature-Classifier")).replace('"core"', '"wavelength"')
+    cfg = json.loads(text)
+    path, _, _ = run(tmp_path, [text])
+    assert path
+    del cfg["theme"]["featureLabels"]["wavelength"]
+    assert "Missing display label" in cli.validate(ARCADE / "Feature-Classifier/source",
+                                                   "Feature-Classifier", cfg, 1)

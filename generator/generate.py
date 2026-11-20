@@ -13,16 +13,16 @@ from uuid import uuid4
 if __package__:
     from .image_client import ImageClient, ImageGenerationError
     from .llm_client import APIError, LLMClient, parse_config
-    from .prompts import KNOBS, ORBIT, PROMPT_VERSION, build_messages
+    from .prompts import KNOBS, CLASSIFIER, PROMPT_VERSION, build_messages
 else:
     from image_client import ImageClient, ImageGenerationError
     from llm_client import APIError, LLMClient, parse_config
-    from prompts import KNOBS, ORBIT, PROMPT_VERSION, build_messages
+    from prompts import KNOBS, CLASSIFIER, PROMPT_VERSION, build_messages
 
 ROOT = Path(__file__).resolve().parents[1]
 GAMES = ROOT / "arcade"
 LOG = ROOT / "generator/logs/generation_logs.jsonl"
-ARCHETYPES = ("Orbit-Patrol", *KNOBS)
+ARCHETYPES = ("Feature-Classifier", *KNOBS)
 
 
 def validate(source, archetype, config, level):
@@ -40,13 +40,13 @@ def validate(source, archetype, config, level):
         field, counts = KNOBS[archetype]
         if len(m[field]) != counts[level-1]:
             return f"Level {level} requires {counts[level-1]} entries in mechanics.{field}."
-    if archetype == "Orbit-Patrol":
-        features, pool, bias, tests = ORBIT[level]
+    if archetype == "Feature-Classifier":
+        features, pool, bias, tests = CLASSIFIER[level]
         training = m["training_pool"]
         if (len(m["features"]) != features or len(m["curveballs"]) != tests
                 or not pool[0] <= training["size"] <= pool[1]
                 or not bias[0] <= training["bias_strength"] <= bias[1]):
-            return f"Level {level} requires feature count, pool, bias and curveballs: {ORBIT[level]}"
+            return f"Level {level} requires feature count, pool, bias and curveballs: {CLASSIFIER[level]}"
         roles = {f["role"]: f for f in m["features"]}
         fields = {f["name"]: f["values"] for f in m["features"]}
         if len(fields) != features or set(roles) != set(["true","spurious","noise"][:features]):
@@ -203,7 +203,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--archetype", choices=ARCHETYPES, default="Orbit-Patrol")
+    parser.add_argument("--archetype", choices=ARCHETYPES, default="Feature-Classifier")
     parser.add_argument("--topic", required=True)
     parser.add_argument("--theme", required=True)
     parser.add_argument("--level", type=int, choices=(1, 2, 3), default=1)

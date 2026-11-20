@@ -2,7 +2,7 @@
   "type": "object",
   "properties": {
     "archetype": {
-      "const": "orbit"
+      "const": "classifier"
     },
     "mechanics": {
       "type": "object",
@@ -22,11 +22,8 @@
             ],
             "properties": {
               "name": {
-                "enum": [
-                  "color",
-                  "shape",
-                  "size"
-                ]
+                "type": "string",
+                "minLength": 1
               },
               "values": {
                 "type": "array",
@@ -78,11 +75,8 @@
           ],
           "properties": {
             "feature": {
-              "enum": [
-                "color",
-                "shape",
-                "size"
-              ]
+              "type": "string",
+              "minLength": 1
             },
             "class_a_value": {
               "type": "string"
@@ -200,40 +194,6 @@
         },
         "featureLabels": {
           "type": "object",
-          "properties": {
-            "green": {
-              "type": "string",
-              "minLength": 1
-            },
-            "red": {
-              "type": "string",
-              "minLength": 1
-            },
-            "round": {
-              "type": "string",
-              "minLength": 1
-            },
-            "spiky": {
-              "type": "string",
-              "minLength": 1
-            },
-            "color": {
-              "type": "string",
-              "minLength": 1
-            },
-            "shape": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "required": [
-            "green",
-            "red",
-            "round",
-            "spiky",
-            "color",
-            "shape"
-          ],
           "additionalProperties": {
             "type": "string",
             "minLength": 1
@@ -254,6 +214,28 @@
             },
             "class1_asset": {
               "type": "string"
+            }
+          }
+        },
+        "palette": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "floor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "stripe": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "team0": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "team1": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
             }
           }
         }

@@ -1,1 +1,8 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"><title>AI literacy</title><main><h1></h1><section></section><p role="status"></p></main><dialog></dialog><script src="game_logic.js"></script><script src="sprites.js"></script><script src="game.js"></script></html>
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alert-Dial</title><link rel="stylesheet" href="../../style.css">
+<main><h1 id="title"></h1><div class="score"><b id="team0"></b><strong id="phase"></strong><b id="team1"></b></div>
+<div class="board"><canvas id="arena" width="560" height="144" aria-label="Arena"></canvas><output id="callout"></output></div>
+<p id="subject"></p><div id="detail"></div><div id="sources"></div>
+<label id="dial" hidden>Threshold <input id="slider" type="range" min="0"></label>
+<aside id="guide"><span id="instruction"></span><button id="skip">Skip tutorial</button></aside>
+<footer class="deck"><div class="model"><span class="portrait" aria-hidden="true">▪▪</span> MODEL <b id="metric"></b><div id="meter"></div></div><div id="actions"></div><kbd>[1] / [←] · [2] / [→] · [SPACE]</kbd></footer></main>
+<script src="game_logic.js"></script><script src="sprites.js"></script><script src="game.js"></script><script src="../../arcade_hud.js"></script></html>

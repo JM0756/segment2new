@@ -1,9 +1,9 @@
 {
-  "archetype": "orbit",
+  "archetype": "classifier",
   "mechanics": {
     "features": [
       {
-        "name": "color",
+        "name": "aura",
         "values": [
           "green",
           "red"
@@ -11,7 +11,7 @@
         "role": "spurious"
       },
       {
-        "name": "shape",
+        "name": "core",
         "values": [
           "round",
           "spiky"
@@ -24,7 +24,7 @@
       "bias_strength": 1
     },
     "class_rule": {
-      "feature": "shape",
+      "feature": "core",
       "class_a_value": "round",
       "class_b_value": "spiky"
     },
@@ -32,18 +32,18 @@
       {
         "id": "cb1",
         "item": {
-          "color": "green",
-          "shape": "spiky"
+          "aura": "green",
+          "core": "spiky"
         },
         "expected_model_failure": true
       }
     ]
   },
   "theme": {
-    "title": "Fallout checkpoint",
-    "setting": "Fallout checkpoint",
-    "accent": "#496630",
-    "tutorial": "At the Fallout checkpoint, select labeled examples from both groups and test your model. Add conflicting examples if it learns a shortcut.",
+    "title": "Pattern Arena: Core Signal vs. Surface Aura",
+    "setting": "Label each sample by its core signal.",
+    "accent": "#365da3",
+    "tutorial": "Classify three samples, then test the learned rule.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
     "skip": "Skip tutorial",
@@ -53,18 +53,18 @@
     "success": "Goal reached.",
     "failure": "Try a different selection.",
     "hintLabel": "Hint",
-    "hint": "Compare Coat and Pulse across the two groups.",
+    "hint": "Compare the core signal with the surface aura.",
     "options": [
-      "Human",
-      "Zombie"
+      "Type A",
+      "Type B"
     ],
     "featureLabels": {
-      "green": "Clean",
-      "red": "Ash-covered",
-      "round": "Steady",
-      "spiky": "Erratic",
-      "color": "Coat",
-      "shape": "Pulse"
+      "green": "Green",
+      "red": "Red",
+      "round": "Round",
+      "spiky": "Spiky",
+      "aura": "Surface aura",
+      "core": "Core signal"
     }
   }
 }

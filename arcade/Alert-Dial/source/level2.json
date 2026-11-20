@@ -1,0 +1,71 @@
+{
+  "archetype": "threshold",
+  "mechanics": {
+    "records": [
+      [
+        10,
+        0
+      ],
+      [
+        25,
+        0
+      ],
+      [
+        35,
+        0
+      ],
+      [
+        45,
+        0
+      ],
+      [
+        50,
+        1
+      ],
+      [
+        65,
+        0
+      ],
+      [
+        90,
+        1
+      ]
+    ],
+    "cutoffs": [
+      0,
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+      80,
+      90,
+      100
+    ],
+    "minHits": 1,
+    "falseAlarmCost": 1,
+    "missCost": 4
+  },
+  "theme": {
+    "title": "Alert Dial",
+    "setting": "Tune the checkpoint cutoff to detect incidents while limiting false alarms.",
+    "accent": "#365da3",
+    "tutorial": "Move the dial and inspect precision and recall.",
+    "practice": "Practice selecting an item below.",
+    "begin": "Begin round",
+    "skip": "Skip tutorial",
+    "guide": "How to play",
+    "check": "Check result",
+    "again": "Play again",
+    "success": "Goal reached.",
+    "failure": "Try a different selection.",
+    "hintLabel": "Hint",
+    "hint": "Scores at or above the cutoff trigger alerts.",
+    "options": [
+      "Clear",
+      "Incident"
+    ]
+  }
+}
