@@ -19,12 +19,14 @@ def reject_constant(value):
     raise ValueError(f"Invalid JSON constant: {value}")
 
 
+def normalize_base(value):
+    base = (value or "http://localhost:3001/v1").strip().rstrip("/")
+    return base if base.endswith("/v1") else base + "/v1"
+
+
 class LLMClient:
     def __init__(self):
-        base = os.getenv("LLM_BASE_URL", "http://localhost:3001/v1").rstrip("/")
-        if not base.endswith("/v1"):
-            base += "/v1"
-        self.base = base
+        self.base = normalize_base(os.getenv("LLM_BASE_URL"))
         self.model = os.getenv("LLM_MODEL", "auto")
         self.key = os.getenv("LLM_API_KEY")
 

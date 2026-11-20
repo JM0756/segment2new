@@ -28,7 +28,9 @@ Activate the virtual environment and run:
 python3 studio/server.py
 ```
 
-Open http://localhost:8000/. Select an activity and switch between its saved levels above the stage. Feature-Classifier, Alert-Dial and Claim-Inspector include two built-in arena rounds. The other three games retain their selection controls. Generate uses the gateway settings above. Chat remix sends the selected config and your instruction to the chat model, validates its revision and opens a new saved activity. Ask to regenerate sprites to request new artwork. Baseline play works offline.
+Open http://localhost:8000/ and choose an archetype under Explore games. Complete its tutorial to unlock Level 1 and the floating AI remix control. Finish Level 1 with at least 80% accuracy to earn three stars and unlock Level 2. This browser remembers progress per archetype. Saved themes appear under All Saved Games. Built-in activities work offline.
+
+Studio reads a repository-root `.env` at startup and gives exported shell variables precedence. Click the gateway status pill to update the base URL or key for the current server session. A “key required” status means the gateway responded to the models probe. A blank key preserves the current key when the gateway origin stays the same.
 
 ## Generate
 

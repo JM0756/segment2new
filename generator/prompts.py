@@ -31,9 +31,11 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         inputs["constraints"].append(
             "In theme.sprites, supply class0_prompt and class1_prompt for the first two "
             "theme.options (or classLabels in sorted key order). Describe each entity using this exact style: "
-            "16-bit chibi pixel art game character sprite, full-body three-quarter side view, "
-            "bold dark pixel outlines, vibrant cel-shaded colors, centered, isolated on a solid "
-            "pure white background #FFFFFF, no ground, no shadow, no text. Omit asset paths."
+            "16-bit pixel art chibi avatar character sprite matching a standardized blocky base template "
+            "(square pixel head with two dark pixel eyes, compact rectangular body, bold 2px dark outline), "
+            "wearing <theme outfit/accessories>, centered full-body standing pose, isolated on pure solid "
+            "#FFFFFF background, no floor, no shadow, no frame, no text. Use the same front/three-quarter "
+            "stance for both classes; vary only clothing, helmet, hair and accessories. Omit asset paths."
         )
     else:
         inputs["constraints"].append("Omit theme.sprites.")

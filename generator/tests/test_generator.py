@@ -219,17 +219,67 @@ def test_image_conversion_after_retry(tmp_path, monkeypatch, image_format):
     pause.assert_called_once_with(10)
     assert send.call_count == 2
     with Image.open(tmp_path / asset) as image:
-        assert (image.format, image.mode, image.size) == ("PNG", "RGBA", (4, 3))
+        assert (image.format, image.mode, image.size) == ("PNG", "RGBA", (128, 128))
 
-def test_corner_cutout_preserves_enclosed_white():
+def test_cutout_keys_enclosed_gradient_and_keeps_character_colors():
     from generator.image_client import cutout
-    image = Image.new("RGBA", (20, 20), "white")
-    image.paste("black", (7, 7, 13, 13))
-    image.putpixel((9, 9), (255, 255, 255, 255))
+    image = Image.new("RGBA", (20, 20), "#ececec")
+    image.paste("white", (0, 0, 10, 20))
+    image.paste("#cc2277", (5, 5, 15, 15))
+    image.paste("#f5f5f5", (8, 8, 12, 12))
     result = cutout(image)
-    assert result.size == (10, 10)
+    assert result.size == (128, 128)
     assert result.getpixel((0, 0))[3] == 0
-    assert result.getpixel((4, 4)) == (255, 255, 255, 255)
+    assert result.getchannel("A").getbbox() == (18, 24, 110, 116)
+    assert result.getpixel((64, 70))[3] == 0
+    assert result.getpixel((30, 35))[:3] == (204, 34, 119)
+    assert any(0 < alpha < 255 for _, alpha in result.getchannel("A").getcolors())
+
+
+def test_character_prompt_perspective():
+    from generator.prompts import build_messages
+    messages = build_messages(ARCADE/"Alert-Dial/source", "Alert-Dial", "Risk", "Market", 1, None, True)
+    rules = json.loads(messages[1]["content"])["constraints"]
+    assert any("standardized blocky base template" in rule and
+               "square pixel head with two dark pixel eyes" in rule and
+               "no floor, no shadow, no frame, no text" in rule for rule in rules)
+
+
+@pytest.mark.parametrize("recover", [True, False])
+def test_chat_refine_post_repairs_setting(tmp_path, monkeypatch, recover):
+    from email.message import Message
+    from studio import server
+    game = "Claim-Inspector"
+    path = "/arcade/Claim-Inspector/source/default.json"
+    cfg = default(game)
+    local = tmp_path/path[1:]
+    local.parent.mkdir(parents=True)
+    local.write_text(json.dumps(cfg))
+    cfg["theme"]["setting"] = "Compare the speakeasy ledger with the witness account."
+    client = Mock(model="test")
+    client.complete.side_effect = ["{}", "```json\n"+json.dumps(cfg)+"\n```"] if recover else ["{}"]*3
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    monkeypatch.setattr(server, "catalog", lambda: [dict(game=game, levels={1:path})])
+    monkeypatch.setattr(server, "LLMClient", lambda: client)
+    body = json.dumps(dict(game=game,path=path,message="Use a 1920s speakeasy")).encode()
+    handler = object.__new__(server.Handler)
+    handler.path = "/api/chat-refine"
+    handler.headers = Message()
+    for k,v in {"Content-Type":"application/json","Content-Length":str(len(body)),"Host":"localhost:8000"}.items():
+        handler.headers[k] = v
+    handler.rfile = BytesIO(body)
+    handler.respond = Mock()
+    handler.do_POST()
+    status, result = handler.respond.call_args.args
+    assert result["ok"] is recover
+    messages = client.complete.call_args.args[0]
+    assert any("'mechanics' is a required property" in m["content"] for m in messages)
+    if recover:
+        assert status == 200 and result["config"] == cfg
+        assert json.loads((tmp_path/result["config_path"][1:]).read_text()) == cfg
+    else:
+        assert status == 502 and "3 attempts" in result["error"]
+        assert client.complete.call_count == 3
 
 
 def test_dynamic_feature_names(tmp_path):
@@ -240,3 +290,47 @@ def test_dynamic_feature_names(tmp_path):
     del cfg["theme"]["featureLabels"]["wavelength"]
     assert "Missing display label" in cli.validate(ARCADE / "Feature-Classifier/source",
                                                    "Feature-Classifier", cfg, 1)
+
+def test_station_tutorial_validates():
+    game = "Feature-Classifier"
+    cfg = default(game)
+    assert cfg["theme"]["title"] == "Orbital Station: Core Hull Signal vs. Surface Static"
+    assert cli.validate(ARCADE/game/"source", game, cfg, 1) is None
+
+
+def test_dotenv_and_gateway_auth(tmp_path, monkeypatch):
+    from studio import server
+    from urllib.error import URLError
+    monkeypatch.setenv("LLM_MODEL", "from-shell")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    env = tmp_path/".env"
+    env.write_text('LLM_MODEL=auto\nLLM_BASE_URL=http://localhost:3001/\nexport LLM_API_KEY="test key"\n')
+    server.load_env(env)
+    probe = Mock(side_effect=HTTPError("test",401,"Unauthorized",{},BytesIO()))
+    monkeypatch.setattr(server,"urlopen",probe)
+    health = server.gateway_status()
+    assert health["online"] and health["auth_required"] and health["model"] == "from-shell"
+    req = probe.call_args.args[0]
+    assert req.full_url == "http://localhost:3001/v1/models"
+    assert req.get_header("Authorization") == "Bearer test key"
+    monkeypatch.delenv("LLM_API_KEY")
+    probe.side_effect = None
+    from contextlib import nullcontext
+    probe.return_value = nullcontext(Mock(status=200))
+    assert server.gateway_status()["online"]
+    assert not probe.call_args.args[0].has_header("Authorization")
+    probe.side_effect = URLError("offline")
+    assert not server.gateway_status()["online"]
+
+
+def test_cutout_starts_at_every_border():
+    from generator.image_client import cutout
+    # A foreground rail splits the near-background field into disconnected regions.
+    image = Image.new("RGBA", (16,16), (185,185,185,255))
+    image.paste("#335577",(4,0,6,16))
+    image.paste("#335577",(10,0,12,16))
+    image.paste((210,200,205,255),(6,0,10,16))
+    result = cutout(image)
+    assert result.getpixel((64,70))[3] == 0
+    assert result.getchannel("A").getbbox() == (41,24,87,116)

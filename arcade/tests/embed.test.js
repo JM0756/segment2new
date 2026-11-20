@@ -24,7 +24,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       const elements=new Map();
       const imageURLs=[], drawings=[];
       const drawing = {
-        save(){},restore(){},strokeRect(){},translate(){},ellipse(){},fillText(){},
+        save(){},restore(){},strokeRect(){},rotate(){},scale(){},stroke(){},moveTo(){},lineTo(){},translate(){},ellipse(){},fillText(){},
         measureText(text){return {width:text.length*5};},
         beginPath(){}, arc(){drawings.push('circle');}, fill(){},
         fillRect(){drawings.push('square');},
@@ -55,7 +55,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
         window:{location:{search,href:'http://localhost/arcade/'+dir+'/source/index.html'+search},addEventListener:(type,fn)=>{if(type==='message')receive=fn;}},
         fetch:async url=>{requested=url;return {json:async ()=>config};}});
 
-      for(const file of ['game_logic.js','sprites.js','game.js',...(hud?['../../arcade_hud.js']:[])]) vm.runInContext(fs.readFileSync(path+file,'utf8'),context);
+      for(const file of ['game_logic.js','sprites.js','game.js',...(hud?['../../animation.js','../../arcade_hud.js']:[])]) vm.runInContext(fs.readFileSync(path+file,'utf8'),context);
       await new Promise(resolve=>setImmediate(resolve));
       assert.equal(requested,configPath);
       assert.equal(elements.get(hud?'title':'h1').textContent,config.theme.title);

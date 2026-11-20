@@ -1,5 +1,6 @@
 const panel=document.querySelector('section'), statusLine=document.querySelector('[role=status]'), dialog=document.querySelector('dialog');
 let m,t,picks,origin,revision=0;
+let submissions=0;
 function emit(event,detail={}) {
   if(origin) parent.postMessage({type:'GAME_EVENT',archetype:'reward',event,detail},origin);
 }
@@ -36,13 +37,20 @@ function render() {
     const won=evaluateSelection(m,picks);
     emit('action',{kind:'submit',picks:[...picks]});
     statusLine.textContent=won?t.success:t.failure; emit(won?'win':'fail');
+    submissions++;
+    const params=new URLSearchParams(window.location.search);
+    if(won&&params.has('mode')){
+      const level=Number(params.get('level')),accuracy=100/submissions,stars=accuracy>=80?3:accuracy>=60?2:1;
+      parent.postMessage({type:'ARCADE_PROGRESS',archetype:params.get('game'),level,accuracy,stars,
+        passed:level===0||stars===3,run:params.get('run')},'*');
+    }
     if(won){panel.replaceChildren(); button(panel,t.again,()=>start(false));}
   });
   button(panel,t.hintLabel,()=>{statusLine.textContent=t.hint; emit('hint_shown');});
   button(panel,t.guide,tutorial);
 }
 function start(showGuide) {
-  picks=[]; statusLine.textContent=''; document.querySelector('h1').textContent=t.title;
+  submissions=0;picks=[]; statusLine.textContent=''; document.querySelector('h1').textContent=t.title;
   document.documentElement.style.setProperty('--accent',t.accent); render(); emit('start');
   if(dialog.open) dialog.close();
   if(showGuide) tutorial();

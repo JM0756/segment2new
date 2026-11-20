@@ -3,6 +3,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import copy
 import re
 import subprocess
 import sys
@@ -131,7 +132,8 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem):
         raise
 
 
-def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False):
+def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False,
+             revision=None, instruction=None, progress=None, raise_on_failure=False):
     started = monotonic()
     source = GAMES / archetype / "source"
     run_id = uuid4().hex
@@ -142,12 +144,20 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     print(f"{action} Level {level} for {archetype}", flush=True)
     previous_config = json.loads(previous.read_text()) if previous else None
     sprite_error = None
-    messages = build_messages(source, archetype, topic, theme, level,
+    messages = build_messages(source, archetype, topic, instruction if revision is not None else theme, level,
                               previous_config, generate_sprites)
+    if revision is not None:
+        messages.append({"role": "user", "content": json.dumps({
+            "current_config": revision, "requested_change": instruction,
+            "instructions": "Return the complete revised game config directly. Apply the requested setting "
+                            "to every entity label, tutorial, hint and feedback. Preserve unrelated mechanics."
+        })})
     failures = []
     api_errors = []
     output = None
     for attempt in range(1, 4):
+        if progress:
+            progress(f"Level {level} · generating config · attempt {attempt}/3")
         print(f"Level {level}, attempt {attempt}/3: waiting for {client.model}", flush=True)
         try:
             response = client.complete(messages)
@@ -169,12 +179,16 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 output.parent.mkdir(parents=True, exist_ok=True)
                 meta = dict(common, schema_version="v1", attempts=attempt, run_id=run_id)
                 if generate_sprites:
+                    if progress:
+                        progress(f"Level {level} · generating character sprites")
                     try:
                         attach_sprites(config, previous_config, source, archetype, level, output.parent, stem)
                     except ImageGenerationError as exc:
                         sprite_error = str(exc)
                         meta["sprite_error"] = sprite_error
                         print(f"Warning: saving text-only activity. Sprite generation failed: {exc}", file=sys.stderr)
+                elif revision and revision["theme"].get("sprites"):
+                    config["theme"]["sprites"] = copy.deepcopy(revision["theme"]["sprites"])
                 else:
                     config["theme"].pop("sprites", None)
                 if previous:
@@ -198,6 +212,8 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a", encoding="utf8") as stream:
         stream.write(json.dumps(record) + "\n")
+    if not output and raise_on_failure:
+        raise APIError(f"Level {level} failed after {attempt} attempts: {error}")
     return output
 
 

@@ -3,3 +3,8 @@
 .spotlight{outline:2px dashed #f6c585;outline-offset:3px}
 
 .portrait{display:inline-grid;place-items:center;vertical-align:middle;width:24px;height:22px;color:#152932;background:#9cd5ba;border:3px solid #10222b;box-shadow:inset 0 -4px #5b927f,0 2px #d9bd79;letter-spacing:2px;padding-left:2px}
+#legend{display:grid;gap:4px;font:bold 12px/1.4 ui-monospace,monospace}#legend span{color:#bdffda;border-left:3px solid;padding-left:6px}#legend span:nth-child(2){color:#ffbf83}#help{margin-top:8px}.spotlight{animation:beacon 1.3s ease-in-out infinite alternate}@keyframes beacon{to{outline-color:transparent;box-shadow:0 0 9px #ecca7880}}@media(prefers-reduced-motion:reduce){.spotlight{animation:none}}
+
+#callout:not(:empty){position:static;display:block;background:#22353c;color:#efeddc;transform:none;border:0;border-left:3px solid #adc4ac;box-shadow:none;max-width:none;font-size:.88rem;font-weight:normal}
+
+#instruction kbd{display:inline-block;background:#101c20;color:#ffdf9d;border:1px solid #82928a;border-bottom-width:3px;margin-left:5px;padding:0 5px;border-radius:3px}
