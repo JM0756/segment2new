@@ -11,9 +11,11 @@ from time import monotonic
 from uuid import uuid4
 
 if __package__:
+    from .image_client import ImageClient, ImageGenerationError
     from .llm_client import APIError, LLMClient, parse_config
     from .prompts import KNOBS, ORBIT, PROMPT_VERSION, build_messages
 else:
+    from image_client import ImageClient, ImageGenerationError
     from llm_client import APIError, LLMClient, parse_config
     from prompts import KNOBS, ORBIT, PROMPT_VERSION, build_messages
 
@@ -98,7 +100,38 @@ def validate(source, archetype, config, level):
     return None
 
 
-def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG):
+def attach_sprites(config, previous, source, archetype, level, directory, stem):
+    theme = config["theme"]
+    prompts = theme.pop("sprites", {})
+    previous_sprites = previous["theme"].get("sprites", {}) if previous else {}
+    sprites = {}
+    created = []
+    try:
+        for slot in ("class0", "class1"):
+            asset, prompt = slot + "_asset", slot + "_prompt"
+            if previous_sprites.get(asset):
+                sprites[asset] = previous_sprites[asset]
+                if prompt in previous_sprites:
+                    sprites[prompt] = previous_sprites[prompt]
+                continue
+            if not prompts.get(prompt, "").strip():
+                raise ImageGenerationError(f"Missing theme.sprites.{prompt}")
+            print(f"Generating Level {level} sprite {slot}", flush=True)
+            sprites[prompt] = prompts[prompt]
+            sprites[asset] = ImageClient().generate(prompts[prompt], directory, stem, slot)
+            created.append(directory / sprites[asset])
+        theme["sprites"] = sprites
+        error = validate(source, archetype, config, level)
+        if error:
+            raise ImageGenerationError(error)
+    except ImageGenerationError:
+        theme.pop("sprites", None)
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False):
     started = monotonic()
     source = GAMES / archetype / "source"
     run_id = uuid4().hex
@@ -107,8 +140,10 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                   prompt_version=PROMPT_VERSION, timestamp=timestamp)
     action = "Regenerating" if previous else "Generating"
     print(f"{action} Level {level} for {archetype}", flush=True)
+    previous_config = json.loads(previous.read_text()) if previous else None
+    sprite_error = None
     messages = build_messages(source, archetype, topic, theme, level,
-                              json.loads(previous.read_text()) if previous else None)
+                              previous_config, generate_sprites)
     failures = []
     api_errors = []
     output = None
@@ -133,6 +168,15 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 output = root / "generated" / archetype / f"{stem}_L{level}.json"
                 output.parent.mkdir(parents=True, exist_ok=True)
                 meta = dict(common, schema_version="v1", attempts=attempt, run_id=run_id)
+                if generate_sprites:
+                    try:
+                        attach_sprites(config, previous_config, source, archetype, level, output.parent, stem)
+                    except ImageGenerationError as exc:
+                        sprite_error = str(exc)
+                        meta["sprite_error"] = sprite_error
+                        print(f"Warning: saving text-only activity. Sprite generation failed: {exc}", file=sys.stderr)
+                else:
+                    config["theme"].pop("sprites", None)
                 if previous:
                     meta["source_level1_file"] = str(previous.relative_to(root))
                 for path, data in [(output.with_suffix(".meta.json"), meta), (output, config)]:
@@ -147,6 +191,8 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     record = dict(common, run_id=run_id, is_regeneration=previous is not None, attempts=attempt,
                   passed=output is not None, first_pass_success=output is not None and attempt == 1,
                   failure_categories=failures, latency_ms=round((monotonic()-started)*1000))
+    if sprite_error is not None:
+        record["sprite_error"] = sprite_error
     if api_errors:
         record["api_errors"] = api_errors
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -162,14 +208,15 @@ def main():
     parser.add_argument("--theme", required=True)
     parser.add_argument("--level", type=int, choices=(1, 2, 3), default=1)
     parser.add_argument("--regenerate-level", type=int, choices=[2])
+    parser.add_argument("--generate-sprites", action="store_true", help="Generate two themed PNG icons")
     args = parser.parse_args()
     if args.regenerate_level and args.level != 1:
         parser.error("--regenerate-level 2 requires --level 1")
     client = LLMClient()
     inputs = client, args.archetype, args.topic, args.theme
-    path = generate(*inputs, args.level)
+    path = generate(*inputs, args.level, generate_sprites=args.generate_sprites)
     if path and args.regenerate_level:
-        path = generate(*inputs, 2, previous=path)
+        path = generate(*inputs, 2, previous=path, generate_sprites=args.generate_sprites)
     return 0 if path else 1
 
 

@@ -1,4 +1,6 @@
+import base64
 import copy
+from functools import partial
 from io import BytesIO
 import json
 from pathlib import Path
@@ -9,6 +11,8 @@ from urllib.error import HTTPError
 
 import pytest
 
+from generator import generate as cli
+from generator.image_client import ImageClient, ImageGenerationError
 from generator.generate import ARCHETYPES, generate
 from generator.llm_client import APIError, LLMClient
 from generator.metrics import summarize
@@ -126,3 +130,76 @@ def test_gateway_error_body(monkeypatch):
     monkeypatch.setattr("generator.llm_client.urlopen", Mock(side_effect=error))
     with pytest.raises(APIError, match="HTTP 502.*provider unavailable�$"):
         LLMClient().complete([])
+
+PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/ZQAAAABJRU5ErkJggg==")
+
+
+def image_response(item):
+    return BytesIO(json.dumps({"data": [item]}).encode())
+
+
+@pytest.mark.parametrize("via_url", [False, True])
+def test_image_endpoint(tmp_path, monkeypatch, via_url):
+    for name in ("IMAGE_BASE_URL", "IMAGE_API_KEY", "IMAGE_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:3001/")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    url = "https://images.example/icon.png"
+    responses = ([image_response({"url": url}), BytesIO(PNG)] if via_url else
+                 [image_response({"b64_json": base64.b64encode(PNG).decode()})])
+    send = Mock(side_effect=responses)
+    monkeypatch.setattr("generator.image_client.urlopen", send)
+    asset = ImageClient().generate("friendly alien", tmp_path, "test", "class0")
+    assert asset == "assets/test_class0.png"
+    assert (tmp_path / asset).read_bytes() == PNG
+    request = send.call_args_list[0].args[0]
+    assert request.full_url == "http://localhost:3001/v1/images/generations"
+    assert request.get_header("Authorization") == "Bearer test-key"
+    assert request.get_header("User-agent") == "ur2phd-generator/1.0"
+    assert json.loads(request.data) == dict(model="auto", prompt="friendly alien", size="512x512",
+                                            n=1, response_format="b64_json")
+    if via_url:
+        assert send.call_args.args[0] == url
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
+    cfg = default("Search-Desk")
+    cfg["theme"]["sprites"] = {"class0_prompt": "calendar", "class1_prompt": "gallery"}
+    first = json.dumps(cfg)
+    cfg["mechanics"]["order"].append(1)
+    text = Mock(model="test", complete=Mock(side_effect=[first, json.dumps(cfg)]))
+    monkeypatch.setattr(cli, "LLMClient", lambda: text)
+    ok = {"b64_json": base64.b64encode(PNG).decode()}
+    error = HTTPError("http://localhost:3001", 503, "Unavailable", {}, BytesIO(b"provider busy"))
+    responses = [image_response(ok), error] if failure else [image_response(ok), image_response(ok)]
+    send = Mock(side_effect=responses)
+    monkeypatch.setattr("generator.image_client.urlopen", send)
+    log = tmp_path / "runs.jsonl"
+    monkeypatch.setattr(cli, "generate", partial(generate, root=tmp_path, log=log))
+    args = ["generate", "--archetype", "Search-Desk", "--theme", "library", "--topic", "search",
+            "--generate-sprites"]
+    monkeypatch.setattr(sys, "argv", args if failure else args + ["--regenerate-level", "2"])
+    assert cli.main() == 0
+    directory = tmp_path / "generated/Search-Desk"
+    first_path, = directory.glob("*_L1.json")
+    theme = json.loads(first_path.read_text())["theme"]
+    assert send.call_count == 2
+    assert "class0_prompt" in str(json.loads(text.complete.call_args.args[0][1]["content"])["constraints"])
+    if failure:
+        assert "sprites" not in theme
+        assert not list(directory.glob("assets/*.png"))
+        assert "provider busy" in capsys.readouterr().err
+        for path in [first_path.with_suffix(".meta.json"), log]:
+            assert "provider busy" in json.loads(path.read_text())["sprite_error"]
+    else:
+        second_path, = directory.glob("*_L2.json")
+        assert theme["sprites"] == json.loads(second_path.read_text())["theme"]["sprites"]
+        for slot in ("class0_asset", "class1_asset"):
+            assert (directory / theme["sprites"][slot]).read_bytes() == PNG
+
+
+def test_malformed_image_response(tmp_path, monkeypatch):
+    monkeypatch.setattr("generator.image_client.urlopen", Mock(return_value=image_response({"b64_json": "%"})))
+    with pytest.raises(ImageGenerationError):
+        ImageClient().generate("entity", tmp_path, "test", "class0")

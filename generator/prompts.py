@@ -18,7 +18,7 @@ ORBIT = {1: (2, (6, 6), (1, 1), 1), 2: (3, (8, 10), (.75, .9), 3),
          3: (3, (11, 12), (.5, .75), 4)}
 
 
-def build_messages(source, archetype, topic, theme, level, previous):
+def build_messages(source, archetype, topic, theme, level, previous, generate_sprites=False):
     if archetype in KNOBS:
         field, targets = KNOBS[archetype]
         knobs = f"Use exactly {targets[level-1]} entries in mechanics.{field}."
@@ -27,6 +27,15 @@ def build_messages(source, archetype, topic, theme, level, previous):
         knobs = f"Use {features} features, pool size within {pool}, bias within {bias}, and {tests} curveballs."
     inputs = {"topic": topic, "theme": theme, "level": f"level_{level}",
               "constraints": [TIERS[level], knobs]}
+    if generate_sprites:
+        inputs["constraints"].append(
+            "In theme.sprites, supply class0_prompt and class1_prompt for the first two "
+            "theme.options (or classLabels in sorted key order). For each use: 2D flat vector arcade "
+            "game sprite of <entity>, centered icon, bold clean outlines, minimal shading, "
+            "isolated on solid dark background, no text. Omit asset paths."
+        )
+    else:
+        inputs["constraints"].append("Omit theme.sprites.")
     for name in ("config_schema", "default", "levels"):
         path = source / (name + ".json")
         inputs[name] = json.loads(path.read_text())

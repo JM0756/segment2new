@@ -7,7 +7,11 @@ function button(parent,label,action) {
   const b=document.createElement('button');
   b.textContent=label; b.onclick=action; parent.append(b); return b;
 }
-function choices() { return [...GameLogic.makePool(m).initial,...GameLogic.makePool(m).extra].map(row => t.options[row.label==='a'?0:1]+' · '+Object.entries(row.item).map(([k,v])=>t.featureLabels[k]+' '+t.featureLabels[v]).join(', ')); }
+function poolRows() {
+  const pool = GameLogic.makePool(m);
+  return [...pool.initial, ...pool.extra];
+}
+function choices(rows = poolRows()) { return rows.map(row => t.options[row.label==='a'?0:1]+' · '+Object.entries(row.item).map(([k,v])=>t.featureLabels[k]+' '+t.featureLabels[v]).join(', ')); }
 function tutorial() {
   dialog.replaceChildren();
   const prompt=document.createElement('p'); prompt.textContent=t.tutorial+' '+t.practice; dialog.append(prompt);
@@ -18,11 +22,13 @@ function tutorial() {
 function render() {
   panel.replaceChildren();
   const description=document.createElement('p'); description.textContent=t.setting; panel.append(description);
-  choices().forEach((label,i)=>{
+  const rows = poolRows();
+  choices(rows).forEach((label,i)=>{
     const b=button(panel,label,()=>{
       picks=picks.includes(i)?picks.filter(n=>n!==i):[...picks,i];
       emit('action',{kind:'select',index:i}); render();
     });
+    ArcadeSprites.draw(b, rows[i].label === 'a' ? 0 : 1, spriteImages);
     b.setAttribute('aria-pressed',String(picks.includes(i)));
   });
   button(panel,t.check,()=>{
@@ -41,14 +47,21 @@ function start(showGuide) {
   if(dialog.open) dialog.close();
   if(showGuide) tutorial();
 }
-function load(config) {
+let spriteImages = [];
+async function load(config) {
   if(config.archetype!=='orbit') throw Error('Wrong archetype');
+  const current = ++revision;
+  const sprites = config.theme?.sprites;
+  const images = sprites?.class0_asset || sprites?.class1_asset
+    ? await ArcadeSprites.preload(sprites, configPath) : [];
+  if (current !== revision) return;
+  spriteImages = images;
   m=config.mechanics;t=config.theme;start(true);
 }
 window.addEventListener('message',e=>{
   if(e.source!==parent || parent===window || e.data?.type!=='LOAD_CONFIG') return;
   if(origin && origin!==e.origin) return;
-  origin=e.origin; revision++; load(e.data.config);
+  origin=e.origin; load(e.data.config);
 });
 const configPath = new URLSearchParams(window.location.search).get('config') || 'default.json';
 fetch(configPath).then(r=>r.json()).then(c=>{if(!revision) load(c);});

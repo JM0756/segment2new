@@ -39,11 +39,27 @@ python -m http.server 8000
 
 Open `http://localhost:8000/arcade/Orbit-Patrol/source/index.html?config=../../../generated/Orbit-Patrol/<file>_L1.json` with the filename printed by the generator. For another archetype, change both occurrences of the game name. Omit `?config=` to play the default round.
 
+## Generate sprites
+
+Add `--generate-sprites` to request two square PNG icons through the gateway's `/v1/images/generations` endpoint. The command below generates a Level 1 activity and reuses its icons for Level 2.
+
+```sh
+export IMAGE_MODEL="auto"
+python generator/generate.py --archetype Orbit-Patrol --topic "Overfitting" --theme "Deep space" --generate-sprites --regenerate-level 2
+```
+
+`IMAGE_MODEL` defaults to `auto`. Set `IMAGE_BASE_URL` or `IMAGE_API_KEY` to override the text gateway URL or key for diffusion. Without the flag, the generator makes only text requests.
+
+Both levels reference PNGs in the adjacent `assets/` directory. Keep that directory alongside the JSON when copying an activity. The games resolve asset paths relative to the JSON selected by `?config=` and also accept image data URIs. When exporting an individual game's `source/` folder, copy the contents of its linked `sprites.js` file along with it.
+
+If diffusion fails, the generator saves the validated text activity and records the provider error under `sprite_error` in its metadata and generation log. Each game draws geometric icons for missing or unavailable sprites.
+
 ## Test and report
 
 ```sh
 python -m pytest -q generator/tests
 python generator/metrics.py
+(cd arcade && node --test tests/*.js */source/tests/*.js)
 ```
 
 Tests use mock model responses and the real game validators. Each requested level that starts generation appends one row to `generator/logs/generation_logs.jsonl`. First-pass and eventual schema conformance rates use all runs as the denominator. A conforming run produced an accepted config within three attempts. Mean and max attempts use successful runs. Regeneration rate uses attempted Level 2 regenerations. Failure counts include every failed attempt. Empty denominators display N/A. Use `python generator/metrics.py --log PATH` to analyze another JSONL file.

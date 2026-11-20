@@ -86,6 +86,24 @@
             "minLength": 1
           },
           "minItems": 1
+        },
+        "sprites": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "class0_prompt": {
+              "type": "string"
+            },
+            "class0_asset": {
+              "type": "string"
+            },
+            "class1_prompt": {
+              "type": "string"
+            },
+            "class1_asset": {
+              "type": "string"
+            }
+          }
         }
       },
       "required": [
