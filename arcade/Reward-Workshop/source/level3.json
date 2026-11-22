@@ -50,7 +50,7 @@
   "theme": {
     "title": "Reward Workshop",
     "setting": "A simulated robot always chooses the route with the highest points. Design rewards so the delivery route beats both waiting and repeatedly collecting tokens.",
-    "accent": "#365da3",
+    "accent": "#71e6e2",
     "tutorial": "A simulated robot always chooses the route with the highest points. Design rewards so the delivery route beats both waiting and repeatedly collecting tokens.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -71,16 +71,22 @@
     ],
     "axes": "Tokens / deliveries / time",
     "environment": {
-      "setting_name": "Workshop",
+      "setting_name": "Orbital Assembly Bay",
       "floor_style": "deck",
       "props": [
-        "crates",
-        "consoles"
+        "viewport",
+        "airlock"
       ],
-      "primary_color": "#324856",
-      "secondary_color": "#435e64",
-      "accent_color": "#e9ac71",
-      "layout": "laboratory"
+      "primary_color": "#283d58",
+      "secondary_color": "#405775",
+      "accent_color": "#71e6e2",
+      "layout": "space-station"
+    },
+    "palette": {
+      "floor": "#283d58",
+      "stripe": "#405775",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

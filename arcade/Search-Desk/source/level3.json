@@ -11,7 +11,7 @@
   "theme": {
     "title": "Search Desk",
     "setting": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second. Then find the receipt instructions. Finally locate the appeal instructions.",
-    "accent": "#365da3",
+    "accent": "#71e6e2",
     "tutorial": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -32,16 +32,22 @@
       "Appeals guide — Contest a missing receipt."
     ],
     "environment": {
-      "setting_name": "Archive",
-      "floor_style": "stone",
+      "setting_name": "Mission Records",
+      "floor_style": "deck",
       "props": [
-        "shelves",
-        "desk_lamps"
+        "viewport",
+        "airlock"
       ],
-      "primary_color": "#454852",
-      "secondary_color": "#52555d",
-      "accent_color": "#bad7ab",
-      "layout": "archive"
+      "primary_color": "#283d58",
+      "secondary_color": "#405775",
+      "accent_color": "#71e6e2",
+      "layout": "space-station"
+    },
+    "palette": {
+      "floor": "#283d58",
+      "stripe": "#405775",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

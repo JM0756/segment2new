@@ -3,6 +3,46 @@ const ArcadeHUD = {
   drawAvatarIcon(target,image,spec,size){
     ArcadeEnvironment.drawAvatarIcon(target,image,spec,size);
   },
+  drawEntitySprite(ctx,image,spec,size,now,mode='idle') {
+    const elapsed=now/125, frame=Math.floor(elapsed), wave=Math.sin(elapsed*Math.PI/2);
+    const walking=mode==='walk', celebrating=mode==='celebrate';
+    ctx.save();
+    ctx.translate(size/2,size);
+    const bounce=celebrating?Math.abs(wave)*size*.17:walking?Math.abs(wave)*size*.08:0;
+    ctx.translate(0,-bounce);
+    ctx.rotate(walking?wave*.09:0);
+    ctx.scale(1,1+(walking?0:.025*wave));
+    ctx.translate(-size/2,-size);
+    this.drawAvatarIcon(ctx,image,{...spec,frame,stride:walking?Math.round(2*wave):0,blink:frame%16===3},size);
+    ctx.restore();
+  },
+  laneCenter(side,total){
+    if(side===0)return .22;
+    if(side===1)return .78;
+    return .22+.56*(side-1)/(total-1);
+  },
+  createCohort() {
+    const members=[],counts=[], laneCenter=this.laneCenter;
+    return {
+      add(actor,side,correct,now,x=.5,y=.5){
+        const index=counts[side]||0;
+        counts[side]=index+1;
+        members.push({actor,side,index,correct,start:now,x,y});
+      },
+      frame(now,laneCount){
+        const arrived=Array(laneCount).fill(0);
+        const actors=members.map(member=>{
+          const t=Math.min(1,Math.max(0,(now-member.start)/380)),ease=1-(1-t)**3;
+          const lane=laneCenter(member.side,laneCount);
+          const dx=lane+(member.index%5-2)*.030,dy=.69+Math.floor(member.index/5)*.047;
+          if(t===1)arrived[member.side]++;
+          return {...member,x:member.x+(dx-member.x)*ease,y:member.y+(dy-member.y)*ease,
+            size:40-23*ease,walking:t<1,age:now-member.start};
+        });
+        return {actors,arrived};
+      }
+    };
+  },
   spawnCallout(entity, outcome, now) {
     return {...outcome,x:entity.x,y:entity.y,entity:{...entity},start:now};
   },

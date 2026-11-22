@@ -76,10 +76,10 @@
     ]
   },
   "theme": {
-    "title": "Orbital Station \u00b7 Reversed Signals",
-    "setting": "Label each sample by its core signal.",
-    "accent": "#365da3",
-    "tutorial": "Classify three samples, then test the learned rule.",
+    "title": "Orbital Station · Deep Space Observation Deck",
+    "setting": "At the Deep Space Observation Deck, identify crew and maintenance androids by their hull seals.",
+    "accent": "#8dd8ff",
+    "tutorial": "Check the hull seal before assigning an airlock lane.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
     "skip": "Skip tutorial",
@@ -89,35 +89,39 @@
     "success": "Goal reached.",
     "failure": "Try a different selection.",
     "hintLabel": "Hint",
-    "hint": "Compare the core signal with the surface aura.",
+    "hint": "Ignore the surface static. A circular seal identifies crew and a serrated seal identifies an android.",
     "options": [
-      "Type A",
-      "Type B"
+      "Station crew",
+      "Maintenance android"
     ],
     "featureLabels": {
-      "green": "Green",
-      "red": "Red",
-      "round": "Round",
-      "spiky": "Spiky",
-      "aura": "Surface aura",
-      "core": "Core signal",
-      "pulse": "Pulse",
-      "fast": "Fast",
-      "slow": "Slow"
+      "green": "Quiet radio",
+      "red": "Loud static",
+      "round": "Circular seal",
+      "spiky": "Serrated seal",
+      "aura": "Surface static",
+      "core": "Hull integrity seal",
+      "pulse": "Beacon cadence",
+      "fast": "Rapid beacon",
+      "slow": "Slow beacon"
     },
     "environment": {
-      "setting_name": "Orbital Station",
+      "setting_name": "Deep Space Observation Deck",
       "floor_style": "deck",
       "props": [
         "viewport",
-        "airlock",
         "consoles"
       ],
-      "primary_color": "#283d58",
-      "secondary_color": "#405775",
-      "accent_color": "#71e6e2",
-      "preset": "space-station",
-      "layout": "space-station"
+      "primary_color": "#15213f",
+      "secondary_color": "#32466b",
+      "accent_color": "#8dd8ff",
+      "layout": "observation-deck"
+    },
+    "palette": {
+      "floor": "#15213f",
+      "stripe": "#32466b",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

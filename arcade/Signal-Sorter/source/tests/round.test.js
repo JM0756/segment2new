@@ -3,8 +3,9 @@ global.correctSort=require('../game_logic').correctSort;
 const {createRound}=require('../game');
 for(const file of ['default','level2','level3'])test('sorts the '+file+' wave and records errors',()=>{
   const cfg=require('../'+file+'.json'),round=createRound(cfg);
-  cfg.mechanics.samples.forEach((sample,i)=>{
-    assert.equal(round.view().actors[0].sample,sample);
+  cfg.mechanics.samples.forEach((_,i)=>{
+    const sample=round.view().actors[0].sample;
+    assert.equal(round.view().subject,cfg.theme.options[sample]);
     round.act(i===0?1-sample:sample);
   });
   assert.ok(round.view().done);

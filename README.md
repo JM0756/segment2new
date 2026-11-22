@@ -28,7 +28,7 @@ Activate the virtual environment and run:
 python3 studio/server.py
 ```
 
-Open http://localhost:8000/ and choose an archetype under Explore games. Complete its tutorial to unlock Level 1 and the floating AI remix control. Pass each round with at least 80% accuracy and select **Next Level →** to advance through Level 3. The browser remembers unlocks per archetype. Studio keeps generated and remixed runs in a temporary workspace until you choose **Save Game**. The saved drawer can reopen or delete a game and its artwork. Built-in activities work offline.
+Open http://localhost:8000/ and choose an archetype under Explore games. Complete its tutorial to unlock Level 1 and the floating AI remix control. Pass at least three of the four field cases and select **Next Level →** to advance through Level 3. Choose **Save Progress** to remember unlocks for that archetype across sessions. Studio keeps generated and remixed runs in a temporary workspace until you choose **Save Game**. The saved drawer can reopen or delete a game and its artwork. Built-in activities work offline.
 
 Studio reads a repository-root `.env` at startup and gives exported shell variables precedence.
 
@@ -53,14 +53,14 @@ Open `http://localhost:8000/arcade/Feature-Classifier/source/index.html?config=.
 
 ## Generate sprites
 
-Add `--generate-sprites` (or select **2D Sprites** in Studio) to generate two characters and a matching arena background. The higher tiers reuse the Level 1 art. Without images, the cards and games draw the floor, palette and props from the activity’s environment.
+Add `--generate-sprites` (or select **2D Sprites** in Studio) to generate two characters and a matching arena background. Higher tiers reuse the characters and generate a separate arena background. Without images, the cards and games draw the floor, palette and props from the activity’s environment.
 
 ```sh
 export IMAGE_MODEL="auto"
 python generator/generate.py --archetype Feature-Classifier --topic "Overfitting" --theme "Deep space" --generate-sprites --regenerate-level 2
 ```
 
-Set `PIXELLAB_API_KEY` in the repository-root `.env` or your shell to use PixelLab Pixflux. Both the CLI and Studio read this file and preserve existing shell settings. Restart Studio after editing the file. `PIXELLAB_BASE_URL` defaults to `https://api.pixellab.ai/v1`. Characters request native transparency at 128×128; the arena requests a 320×180 scene. [PixelLab v1 API](https://api.pixellab.ai/v1/docs)
+Set `PIXELLAB_API_KEY` in the repository-root `.env` or your shell to use PixelLab Pixflux. Both the CLI and Studio read this file and preserve existing shell settings. Restart Studio after editing the file. With sprite generation enabled, set `ENABLE_ANIMATED_SPRITES=true` for optional four-frame character art, or send `"animated_sprites": true` to the Studio generation or refinement API. If animation times out after 20 seconds, the character uses its static sprite. `PIXELLAB_BASE_URL` defaults to `https://api.pixellab.ai/v1`. Characters request native transparency at 128×128; the arena requests a 320×180 scene. [PixelLab v1 API](https://api.pixellab.ai/v1/docs)
 
 An unset or empty PixelLab key selects the OpenAI-compatible `/images/generations` endpoint and Pillow character cleanup. `IMAGE_MODEL` defaults to `auto`. Set `IMAGE_BASE_URL` or `IMAGE_API_KEY` to override the text gateway URL or key for diffusion. Without the flag, the generator makes only text requests.
 

@@ -127,12 +127,15 @@ function play(item,file,requested){
   const baseline=items.find(i=>i.game===item.game&&!saved(i));
   const first=item.levels[1]||file;
   const paths=[first,first,item.levels[2]||baseline?.levels[2],item.levels[3]||baseline?.levels[3]];
-  level=Progression.enter(unlocked,requested??Math.max(1,paths.lastIndexOf(file)));
+  level=Progression.enter(unlocked,requested??0);
   path=paths[level];runId=crypto.randomUUID();
   $('play').hidden=false;$('remixToggle').hidden=!Progression.canRemix(level,unlocked);
   if(Object.values(item.levels).includes(path))targetPath=path;
   const url=new URL('/arcade/'+item.game+'/source/index.html',location.origin);
   url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,game:item.game,run:runId});
+  if(requested>0)url.searchParams.set('transition','1');
+  $('resumeLevel').hidden=level===0||unlocked<=level;
+  $('resumeLevel').textContent='Resume Level '+unlocked;
   $('stage').src=url;$('stage').title=item.title+' · '+(level?'Level '+level:'Tutorial');
 }
 window.addEventListener('message',e=>{
@@ -144,11 +147,28 @@ window.addEventListener('message',e=>{
     return;
   }
   if(m.type!=='ARCADE_PROGRESS')return;
-  passedRun=m.passed&&(level===0||m.accuracy>=80&&m.stars===3);
+  passedRun=m.passed&&(level===0||m.accuracy>=75&&m.stars===3);
   unlocked=Progression.complete(unlocked,level,m);
   sessionUnlocks.set(active.game,unlocked);
-  try{localStorage.setItem('arcade-progress-v1/'+active.game,unlocked);}catch{}
 });
+$('resumeLevel').onclick=()=>play(active,null,unlocked);
+let saveTimer;
+$('saveProgress').onclick=()=>{
+  if(!active)return;
+  const control=$('saveProgress');
+  let status;
+  try{
+    localStorage.setItem('arcade-progress-v1/'+active.game,String(unlocked));
+    control.dataset.saved='true';
+    status='Progress saved';
+  }catch{delete control.dataset.saved;status='Storage unavailable';}
+  control.title=status;control.setAttribute('aria-label',status);
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    delete control.dataset.saved;
+    control.title='Save progress';control.setAttribute('aria-label',control.title);
+  },1500);
+};
 async function libraryRequest(endpoint,method,game,path){
   const response=await fetch(endpoint,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({game,path})});
   const result=await response.json();
@@ -214,7 +234,7 @@ async function send(e){
     const response=await fetch('/api/'+(chat?'chat-refine':'generate'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const result=await response.json();
     if(id!==session)return;
-    if(!response.ok||!result.ok)throw Error('generation');
+    if(!response.ok||!result.ok)throw Error(result.error||'Generation failed (HTTP '+response.status+').');
     // A saved turn remains playable if refreshing the library fails.
     try{await refresh();}catch{}
     if(id!==session)return;
@@ -225,11 +245,11 @@ async function send(e){
       levels:result.levels||catalogItem?.levels||{[tier]:result.config_path}, environment:theme.environment,
       config:result.config, thumbnail:theme.class0Sprite||theme.sprites?.class0_asset};
     resultCard(item,result.config_path,reply,result.summary||result.config.theme.setting);
-    if(result.message){const note=document.createElement('p');note.textContent='The playable version is ready. Some requested extras could not be generated.';reply.append(note);}
+    if(result.message){const note=document.createElement('p');note.textContent=result.message;reply.append(note);}
     reply.scrollIntoView({block:'start',behavior:reduced()?'instant':'smooth'});
-  }catch{
+  }catch(error){
     if(id!==session)return;
-    reply.textContent='I couldn’t finish this game. Check the gateway connection or revise your prompt.';
+    reply.textContent=error.message;
     reply.append(button('Edit and retry',()=>{$('theme').value=prompt;resizeInput();$('theme').focus();}));
   }finally{
     if(id===session){clearInterval(pendingTimer);busy=false;$('send').disabled=false;}

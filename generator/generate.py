@@ -2,6 +2,7 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import copy
 import re
@@ -103,7 +104,7 @@ def validate(source, archetype, config, level):
     return None
 
 
-def attach_sprites(config, previous, source, archetype, level, directory, stem):
+def attach_sprites(config, previous, source, archetype, level, directory, stem, animated_sprites=None):
     theme = config["theme"]
     prompts = theme.pop("sprites", {})
     previous_theme = previous["theme"] if previous else {}
@@ -111,7 +112,9 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem):
     sprites = {}
     created = []
     client = ImageClient()
-    background_warning = None
+    warnings = []
+    if animated_sprites is None:
+        animated_sprites = os.getenv("ENABLE_ANIMATED_SPRITES", "").strip().lower() == "true"
     try:
         for slot in ("class0", "class1"):
             asset, prompt = slot + "_asset", slot + "_prompt"
@@ -128,26 +131,29 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem):
                 prompts[prompt] = f"{label} in {theme['setting']}. {SPRITE_STYLE.replace('<theme outfit/accessories>', 'clothing suited to this setting')}"
             print(f"Generating Level {level} sprite {slot}", flush=True)
             sprites[prompt] = prompts[prompt]
-            sprites[asset] = client.generate(prompts[prompt], directory, stem, slot)
+            art_stem = f"{stem}_L{level}" if previous else stem
+            sprites[asset] = client.generate(prompts[prompt], directory, art_stem, slot)
             created.append(directory / sprites[asset])
+            if animated_sprites and client.pixel_key:
+                try:
+                    sprites[asset] = client.animate(directory, sprites[asset], prompts[prompt])
+                    created.append(directory / sprites[asset])
+                except ImageGenerationError as exc:
+                    warnings.append(f"{slot} animation unavailable. Using static sprite. {exc}")
         theme["sprites"] = sprites
         for i in (0,1):
             theme[f"class{i}Sprite"] = sprites[f"class{i}_asset"]
-        previous_background = previous["theme"].get("backgroundSprite") if previous else None
-        if previous_background:
-            theme["backgroundSprite"] = previous_background
-        else:
-            env = theme["environment"]
-            description = (f"16-bit top-down 2D pixel art game arena background of {env['setting_name']}, "
-                           f"{env['layout']} architecture, {env['floor_style']} floor, {', '.join(env['props'])}, "
-                           f"palette {env['primary_color']} {env['secondary_color']} {env['accent_color']}, "
-                           "atmospheric lighting, clean open center floor space, vibrant cel-shaded pixel art, "
-                           "no characters, no text")
-            try:
-                theme["backgroundSprite"] = client.generate(description, directory, stem, "backgroundSprite")
-                created.append(directory / theme["backgroundSprite"])
-            except ImageGenerationError as exc:
-                background_warning = f"Arena image failed; using the procedural environment. {exc}"
+        env = theme["environment"]
+        description = (f"16-bit top-down 2D pixel art game arena background of {env['setting_name']}, "
+                       f"{env['layout']} architecture, {env['floor_style']} floor, {', '.join(env['props'])}, "
+                       f"palette {env['primary_color']} {env['secondary_color']} {env['accent_color']}, "
+                       "atmospheric lighting, clean open center floor space, vibrant cel-shaded pixel art, "
+                       "no characters, no text")
+        try:
+            theme["backgroundSprite"] = client.generate(description, directory, f"{stem}_L{level}", "backgroundSprite")
+            created.append(directory / theme["backgroundSprite"])
+        except ImageGenerationError as exc:
+            warnings.append(f"Arena image failed; using the procedural environment. {exc}")
         error = validate(source, archetype, config, level)
         if error:
             raise ImageGenerationError(error)
@@ -159,11 +165,42 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem):
         for path in created:
             path.unlink(missing_ok=True)
         raise
-    return background_warning
+    return " ".join(warnings) or None
+
+
+def inherit_classifier_labels(config, previous):
+    theme, prior = config["theme"], previous["theme"]
+    theme.setdefault("featureLabels", {})
+    theme["options"] = list(prior["options"])
+    old_features = {f["role"]:f for f in previous["mechanics"]["features"]}
+    for feature in config["mechanics"]["features"]:
+        old = old_features.get(feature["role"])
+        if old is None:
+            continue
+        current_values, old_values = feature["values"], old["values"]
+        if feature["role"] == "true":
+            keys = ("class_a_value","class_b_value")
+            current_values = [config["mechanics"]["class_rule"][key] for key in keys]
+            old_values = [previous["mechanics"]["class_rule"][key] for key in keys]
+        for new_key, old_key in zip([feature["name"],*current_values], [old["name"],*old_values]):
+            theme["featureLabels"][new_key] = prior["featureLabels"][old_key]
+
+
+def annotate_classifier_cases(mechanics):
+    # This is derived from the same class rule the playable round uses.
+    rule = mechanics["class_rule"]
+    roles = {feature["role"]: feature for feature in mechanics["features"]}
+    shortcut = roles["spurious"]
+    for case in mechanics["curveballs"]:
+        item = case["item"]
+        actual_a = item[rule["feature"]] == rule["class_a_value"]
+        shortcut_a = item[shortcut["name"]] == shortcut["values"][0]
+        case["expected_model_failure"] = actual_a != shortcut_a
 
 
 def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False,
-             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None):
+             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None, animated_sprites=None):
+    generate_sprites = generate_sprites or animated_sprites is True
     started = monotonic()
     source = GAMES / archetype / "source"
     run_id = uuid4().hex
@@ -177,6 +214,30 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     prior_tier = int(previous.stem[-1]) if previous and re.search(r"_L[123]$",previous.stem) else 1
     messages = build_messages(source, archetype, topic, instruction if revision is not None else theme, level,
                               previous_config, generate_sprites, prior_tier)
+    used_layouts = set()
+    label_source = previous_config
+    if previous:
+        prefix = previous.stem.rsplit("_L",1)[0]
+        for sibling in previous.parent.glob(prefix+"_L[123].json"):
+            if sibling.stem.endswith(f"_L{level}"):
+                continue
+            accepted = json.loads(sibling.read_text())
+            env = accepted["theme"].get("environment",{})
+            if env.get("layout"):
+                used_layouts.add(env["layout"])
+            if (archetype == "Feature-Classifier" and
+                    len(accepted["mechanics"]["features"]) > len(label_source["mechanics"]["features"])):
+                # Later tiers also name the noise feature, which Level 1 omits.
+                label_source = accepted
+        for aliases in ({"laboratory","clinical"},{"newsroom","archive"}):
+            if used_layouts & aliases:
+                used_layouts.update(aliases)
+        messages.append({"role":"user","content":"Choose a different architectural layout and location from these used layouts: "
+                         + ", ".join(sorted(used_layouts))})
+        if label_source is not previous_config:
+            messages.append({"role": "user", "content": "Keep these accepted feature names, values and display labels: "
+                             + json.dumps({"features": label_source["mechanics"]["features"],
+                                           "featureLabels": label_source["theme"]["featureLabels"]})})
     if revision is not None:
         messages.append({"role": "user", "content": json.dumps({
             "current_config": revision, "requested_change": instruction,
@@ -200,11 +261,20 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
         except ValueError as exc:
             category, error = "json_parse_error", str(exc)
         else:
+            if archetype == "Feature-Classifier":
+                try:
+                    if label_source:
+                        inherit_classifier_labels(config, label_source)
+                    annotate_classifier_cases(config["mechanics"])
+                except (KeyError, TypeError, AttributeError, IndexError):
+                    pass  # The validator reports incomplete structures in the repair prompt.
             error = validate(source, archetype, config, level)
             if error is None and "environment" not in config["theme"]:
                 error = "Supply the complete theme.environment for the requested setting."
             if error is None and "layout" not in config["theme"]["environment"]:
                 error = "Select theme.environment.layout from the architectural layouts in the schema."
+            if error is None and config["theme"]["environment"]["layout"] in used_layouts:
+                error = "Choose a new environment.layout. Already used: " + ", ".join(sorted(used_layouts))
             if error is None:
                 # Only use paths produced by the image stage.
                 for field in ("backgroundSprite","class0Sprite","class1Sprite"):
@@ -220,7 +290,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     if progress:
                         progress(f"Level {level} · generating character sprites")
                     try:
-                        sprite_error = attach_sprites(config, previous_config, source, archetype, level, output.parent, stem)
+                        sprite_error = attach_sprites(config, previous_config, source, archetype, level, output.parent, stem, animated_sprites)
                     except ImageGenerationError as exc:
                         sprite_error = str(exc)
                     if sprite_error:
@@ -228,7 +298,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                         print(f"Warning: {sprite_error}", file=sys.stderr)
                 elif revision or previous_config:
                     retained = (revision or previous_config)["theme"]
-                    if retained.get("backgroundSprite"):
+                    if revision and retained.get("backgroundSprite") and retained.get("environment")==config["theme"].get("environment"):
                         config["theme"]["backgroundSprite"] = retained["backgroundSprite"]
                     config["theme"].pop("sprites", None)
                     if retained.get("sprites"):

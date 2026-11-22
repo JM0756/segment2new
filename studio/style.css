@@ -19,9 +19,13 @@ dialog{border:1px solid var(--border);border-radius:12px;color:var(--text-primar
 .stage-fullscreen-root{position:relative;isolation:isolate}.stage-fullscreen-root iframe{width:100%;height:clamp(440px,64vh,740px)}
 #play:fullscreen{display:block;width:100vw;height:100vh;margin:0;padding:0;border:0}#play:fullscreen iframe{width:100%;height:100%}
 .stage-controls{position:absolute;bottom:8px;right:8px;display:flex;gap:5px;z-index:9999}
-.stage-controls button,#remixToggle{position:static;width:38px;height:38px;padding:6px;border-radius:8px;background:#162d3e;color:#e7ffec;border:1px solid #96b9bb}
-.stage-controls svg,.stage-controls canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+.stage-controls button,#remixToggle{position:static;width:38px;height:38px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:#162d3e;color:#e7ffec;border:1px solid #96b9bb}
+.stage-controls svg,.stage-controls canvas{display:block;width:24px;height:24px;image-rendering:pixelated}
 .collapse,#fullscreen[aria-pressed=true] .expand{display:none}#fullscreen[aria-pressed=true] .collapse{display:block}
 #stageChat{position:absolute;bottom:52px;right:9px;width:min(300px,92%);display:grid;gap:7px;padding:12px;z-index:9999;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text-primary)}#stageChat[hidden]{display:none}#stageChat textarea{font:inherit;background:var(--bg);color:var(--text-primary);width:100%;resize:vertical}
 @media(max-width:900px){#catalog{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){#catalog{grid-template-columns:1fr}}
+
+.stage-controls #resumeLevel{display:flex;align-items:center;gap:5px;width:auto;padding:5px 9px;font-size:12px}#saveProgress svg{width:20px;height:20px}
+#saveProgress .saved-check,#saveProgress[data-saved="true"] svg:first-child{display:none}
+#saveProgress[data-saved="true"] .saved-check{display:block;color:#81efa1}

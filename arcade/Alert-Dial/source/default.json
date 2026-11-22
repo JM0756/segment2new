@@ -42,7 +42,7 @@
   },
   "theme": {
     "title": "Alert Dial",
-    "setting": "Tune the checkpoint cutoff to detect incidents while limiting false alarms.",
+    "setting": "At the Triage Checkpoint, tune the cutoff to catch incidents while limiting false alarms.",
     "accent": "#365da3",
     "tutorial": "Move the dial and inspect precision and recall.",
     "practice": "Practice selecting an item below.",
@@ -60,7 +60,7 @@
       "Incident"
     ],
     "environment": {
-      "setting_name": "Checkpoint",
+      "setting_name": "Triage Checkpoint",
       "floor_style": "asphalt",
       "props": [
         "barriers",

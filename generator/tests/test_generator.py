@@ -21,6 +21,7 @@ from generator.metrics import summarize
 
 @pytest.fixture(autouse=True)
 def isolated_image_provider(monkeypatch):
+    monkeypatch.delenv("ENABLE_ANIMATED_SPRITES", raising=False)
     monkeypatch.setenv("PIXELLAB_API_KEY", "")
 
 
@@ -77,6 +78,7 @@ def test_retry_cap(tmp_path):
 def test_pair(tmp_path):
     cfg = default("Search-Desk")
     first, _, _ = run(tmp_path, [json.dumps(cfg)], "Search-Desk")
+    cfg["theme"]["environment"]["layout"]="forest-edge"
     cfg["mechanics"]["order"].append(1)
     second, row, client = run(tmp_path, [json.dumps(cfg)], "Search-Desk", 2, first)
     assert row["is_regeneration"]
@@ -175,12 +177,13 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
     cfg = default("Search-Desk")
     cfg["theme"]["sprites"] = {"class0_prompt": "calendar", "class1_prompt": "gallery"}
     first = json.dumps(cfg)
+    cfg["theme"]["environment"]["layout"]="forest-edge"
     cfg["mechanics"]["order"].append(1)
     text = Mock(model="test", complete=Mock(side_effect=[first, json.dumps(cfg)]))
     monkeypatch.setattr(cli, "LLMClient", lambda: text)
     ok = {"b64_json": base64.b64encode(PNG).decode()}
     error = HTTPError("http://localhost:3001", 500, "Unavailable", {}, BytesIO(b"provider busy"))
-    responses = [image_response(ok), error] if failure else [image_response(ok) for _ in range(3)]
+    responses = [image_response(ok), error] if failure else [image_response(ok) for _ in range(4)]
     send = Mock(side_effect=responses)
     monkeypatch.setattr("generator.image_client.urlopen", send)
     log = tmp_path / "runs.jsonl"
@@ -192,7 +195,7 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
     directory = tmp_path / "generated/Search-Desk"
     first_path, = directory.glob("*_L1.json")
     theme = json.loads(first_path.read_text())["theme"]
-    assert send.call_count == (2 if failure else 3)
+    assert send.call_count == (2 if failure else 4)
     assert "class0_prompt" in str(json.loads(text.complete.call_args.args[0][1]["content"])["constraints"])
     if failure:
         assert "sprites" not in theme
@@ -204,7 +207,7 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
         second_path, = directory.glob("*_L2.json")
         second_theme = json.loads(second_path.read_text())["theme"]
         assert theme["sprites"] == second_theme["sprites"]
-        assert theme["backgroundSprite"] == second_theme["backgroundSprite"]
+        assert theme["backgroundSprite"] != second_theme["backgroundSprite"]
         assert Image.open(directory/theme["backgroundSprite"]).size == (320, 180)
         assert theme["environment"]["setting_name"] in json.loads(send.call_args.args[0].data)["prompt"]
         for slot in ("class0_asset", "class1_asset"):
@@ -276,7 +279,7 @@ def test_chat_refine_post_repairs_setting(tmp_path, monkeypatch, recover):
     monkeypatch.setattr(server, "LLMClient", lambda: client)
     body = json.dumps(dict(game=game,path=path,message="Use a 1920s speakeasy")).encode()
     handler = object.__new__(server.Handler)
-    handler.path = "/api/chat-refine"
+    handler.path = "api/chat-refine" if recover else "/api/chat-refine"
     handler.headers = Message()
     for k,v in {"Content-Type":"application/json","Content-Length":str(len(body)),"Host":"localhost:8000"}.items():
         handler.headers[k] = v
@@ -454,3 +457,120 @@ def test_signal_sorter_rejects_ambiguous_wave_and_wrong_tier_size():
     assert "clean and noisy" in cli.validate(source,game,config,3)
     config["mechanics"]["samples"] = [1,0,1]
     assert "9 entries" in cli.validate(source,game,config,3)
+
+
+@pytest.mark.parametrize("game", ARCHETYPES)
+def test_three_architectural_layouts(game):
+    source = ARCADE/game/"source"
+    environments = [json.loads((source/name).read_text())["theme"]["environment"]
+                    for name in ("default.json","level2.json","level3.json")]
+    assert len({e["layout"] for e in environments}) == 3
+    assert len({e["setting_name"] for e in environments}) == 3
+
+
+def test_slow_images_leave_playable_config(tmp_path, monkeypatch):
+    monkeypatch.setattr("generator.image_client.urlopen", Mock(side_effect=TimeoutError("provider timed out")))
+    text = Mock(model="mock")
+    text.complete.return_value=json.dumps(default("Feature-Classifier"))
+    path=generate(text,"Feature-Classifier","Labels","Forest",1,root=tmp_path,log=tmp_path/"log",generate_sprites=True)
+    theme=json.loads(path.read_text())["theme"]
+    assert "sprites" not in theme and theme["environment"]["layout"]
+    assert "provider timed out" in json.loads(path.with_suffix(".meta.json").read_text())["sprite_error"]
+
+
+@pytest.mark.parametrize("format",["image","data","url"])
+def test_pixflux_payload_formats_and_timeout(tmp_path,monkeypatch,format):
+    encoded=base64.b64encode(PNG).decode()
+    payload={"image":{"base64":encoded}} if format=="image" else {"data":[{"b64_json":encoded}]}
+    if format=="url":
+        payload={"url":"https://images.example/scene.png"}
+    send=Mock(side_effect=[BytesIO(json.dumps(payload).encode()),BytesIO(PNG)])
+    monkeypatch.setenv("PIXELLAB_API_KEY","test")
+    monkeypatch.setattr("generator.image_client.urlopen",send)
+    asset=ImageClient().generate("A forest",tmp_path,"tier3","backgroundSprite")
+    assert Image.open(tmp_path/asset).size==(320,180)
+    assert all(call.kwargs["timeout"]==30 for call in send.call_args_list)
+
+
+def test_classifier_cue_names_follow_roles_across_tiers():
+    original=default("Feature-Classifier")
+    config=json.loads((ARCADE/"Feature-Classifier/source/level2.json").read_text())
+    feature=next(f for f in config["mechanics"]["features"] if f["role"]=="spurious")
+    feature["name"]="color"
+    feature["values"]=["blue","yellow"]
+    config["theme"]["featureLabels"]={}
+    cli.inherit_classifier_labels(config,original)
+    labels=config["theme"]["featureLabels"]
+    assert [labels[k] for k in ("color","blue","yellow")]==["Surface static","Quiet radio","Loud static"]
+
+
+def test_third_tier_inherits_noise_labels_introduced_in_second_tier(tmp_path):
+    source = ARCADE / "Feature-Classifier/source"
+    first, _, _ = run(tmp_path, [(source / "default.json").read_text()])
+    second = json.loads((source / "level2.json").read_text())
+    noise = next(f for f in second["mechanics"]["features"] if f["role"] == "noise")
+    second["theme"]["featureLabels"][noise["name"]] = "Forest echo"
+    run(tmp_path, [json.dumps(second)], level=2, previous=first)
+    response = json.loads((source / "level3.json").read_text())
+    del response["theme"]["featureLabels"]
+    for case in response["mechanics"]["curveballs"]:
+        case["expected_model_failure"] = not case["expected_model_failure"]
+    third, record, _ = run(tmp_path, [json.dumps(response)], level=3, previous=first)
+    assert record["first_pass_success"]
+    config = json.loads(third.read_text())
+    noise = next(f for f in config["mechanics"]["features"] if f["role"] == "noise")
+    assert config["theme"]["featureLabels"][noise["name"]] == "Forest echo"
+
+
+def animation_frame(color):
+    buffer = BytesIO()
+    Image.new("RGBA", (64, 64), color).save(buffer, format="PNG")
+    return {"type": "base64", "base64": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()}
+
+
+@pytest.mark.parametrize("enable_via_env", [True, False])
+def test_animation_sheet_and_static_fallback(tmp_path, monkeypatch, enable_via_env):
+    monkeypatch.setenv("PIXELLAB_API_KEY", "test-key")
+    monkeypatch.setenv("ENABLE_ANIMATED_SPRITES", str(enable_via_env).lower())
+    text = Mock(model="mock")
+    text.complete.return_value = json.dumps(default("Feature-Classifier"))
+    colors = [(n, 40, 70, 255) for n in (10, 20, 30, 40)]
+    frames = [animation_frame(color) for color in colors]
+    def static():
+        return BytesIO(json.dumps({"image": {"base64": base64.b64encode(PNG).decode()}}).encode())
+    send = Mock(side_effect=[static(), BytesIO(json.dumps({"images": frames}).encode()), static(),
+                             TimeoutError("animation timed out"), static()])
+    monkeypatch.setattr("generator.image_client.urlopen", send)
+    output = generate(text, "Feature-Classifier", "Training", "Forest", 1, root=tmp_path, log=tmp_path/"log",
+                      generate_sprites=enable_via_env, animated_sprites=None if enable_via_env else True)
+    requests = [call for call in send.call_args_list if call.args[0].full_url.endswith("/animate-with-text")]
+    assert len(requests) == 2
+    for call in requests:
+        request = call.args[0]
+        assert call.kwargs["timeout"] == 20
+        assert request.get_header("Authorization") == "Bearer test-key"
+        payload = json.loads(request.data)
+        assert payload["n_frames"] == 4 and payload["image_size"] == {"width": 64, "height": 64}
+        with Image.open(BytesIO(base64.b64decode(payload["reference_image"]["base64"]))) as reference:
+            assert reference.size == (64, 64)
+    theme = json.loads(output.read_text())["theme"]
+    assert theme["class0Sprite"] == theme["sprites"]["class0_asset"]
+    assert theme["class0Sprite"].endswith("_class0_anim.png")
+    with Image.open(output.parent/theme["class0Sprite"]) as sheet:
+        assert sheet.size == (512, 128)
+        assert [sheet.getpixel((i*128, 0)) for i in range(4)] == colors
+    assert theme["class1Sprite"].endswith("_class1.png")
+    with Image.open(output.parent/theme["class1Sprite"]) as static_image:
+        assert static_image.size == (128, 128)
+    assert "animation timed out" in json.loads(output.with_suffix(".meta.json").read_text())["sprite_error"]
+
+
+def test_incomplete_animation_keeps_static_reference(tmp_path, monkeypatch):
+    path = tmp_path/"class0.png"
+    path.write_bytes(PNG)
+    monkeypatch.setenv("PIXELLAB_API_KEY", "test")
+    send = Mock(return_value=BytesIO(b'{"images":[]}'))
+    monkeypatch.setattr("generator.image_client.urlopen", send)
+    with pytest.raises(ImageGenerationError, match="four frames"):
+        ImageClient().animate(tmp_path, path.name, "Character")
+    assert path.read_bytes() == PNG and not (tmp_path/"class0_anim.png").exists()

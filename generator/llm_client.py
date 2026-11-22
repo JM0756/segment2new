@@ -11,8 +11,12 @@ class APIError(Exception):
 
 
 def parse_config(text):
-    fenced = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, re.I | re.S)
-    return json.loads(fenced.group(1) if fenced else text, parse_constant=reject_constant)
+    text = re.sub(r"^\s*<think>.*?</think>", "", text, count=1, flags=re.S).strip()
+    if not text.startswith("{"):
+        fenced = re.findall(r"```(?:json)?\s*(.*?)\s*```", text, re.I | re.S)
+        if len(fenced) == 1:
+            text = fenced[0]
+    return json.loads(text, parse_constant=reject_constant)
 
 
 def reject_constant(value):

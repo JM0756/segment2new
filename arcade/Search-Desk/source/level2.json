@@ -10,7 +10,7 @@
   "theme": {
     "title": "Search Desk",
     "setting": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second. Then find the receipt instructions.",
-    "accent": "#365da3",
+    "accent": "#a4f1d8",
     "tutorial": "A learner needs one source for the deadline and another for the submission method. Rank the deadline source first and the submission source second.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -30,16 +30,22 @@
       "Receipt guide — Save your confirmation."
     ],
     "environment": {
-      "setting_name": "Archive",
+      "setting_name": "Research Desk",
       "floor_style": "stone",
       "props": [
-        "shelves",
+        "consoles",
         "desk_lamps"
       ],
-      "primary_color": "#454852",
-      "secondary_color": "#52555d",
-      "accent_color": "#bad7ab",
-      "layout": "archive"
+      "primary_color": "#204953",
+      "secondary_color": "#639da2",
+      "accent_color": "#a4f1d8",
+      "layout": "laboratory"
+    },
+    "palette": {
+      "floor": "#204953",
+      "stripe": "#639da2",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

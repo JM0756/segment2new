@@ -8,7 +8,7 @@ const ArcadeNarrator = {
         const rule=mechanics.class_rule;
         label+=' · '+theme.featureLabels[slot?rule.class_b_value:rule.class_a_value];
       }
-      return {slot,label,sample:archetype==='sorter'?slot:undefined};
+      return {slot,label,badge:archetype==='classifier'?slot:undefined,aura:archetype==='classifier'?1-slot:undefined,sample:archetype==='sorter'?slot:undefined};
     });
   },
   lines(config) {

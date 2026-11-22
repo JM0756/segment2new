@@ -1,6 +1,8 @@
 import json
 from unittest.mock import Mock
 
+import pytest
+
 from studio import server
 
 
@@ -88,17 +90,22 @@ def test_startup_cleanup_migrates_opaque_characters_once_and_preserves_scenes(tm
     image.save(hero)
     image.save(scene)
     (assets.parent/"level.json").write_text(json.dumps({"theme":{"backgroundSprite":"assets/street.png"}}))
+    sheet=assets/'hero_anim.png'
+    Image.new('RGBA',(512,128),'white').save(sheet)
+    original_sheet=sheet.read_bytes()
     original = scene.read_bytes()
     assert server.clean_cached_sprites(folder) == 1
     with Image.open(hero) as saved:
         assert saved.mode == "RGBA" and saved.size == (128, 128)
         assert saved.getpixel((0, 0))[3] == 0 and saved.getpixel((64, 64))[3] == 255
+    assert sheet.read_bytes()==original_sheet
     stamp = hero.stat().st_mtime_ns
     assert server.clean_cached_sprites(folder) == 0
     assert hero.stat().st_mtime_ns == stamp and scene.read_bytes() == original
 
 
-def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch):
+@pytest.mark.parametrize("animated", [False, True])
+def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch,animated):
     from email.message import Message
     from io import BytesIO
     from PIL import Image
@@ -114,7 +121,12 @@ def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch):
         (directory/'assets').mkdir(exist_ok=True)
         Image.new('RGBA',(128,128),'green').save(directory/relative)
         return relative
-    monkeypatch.setattr(generator,'ImageClient',lambda:Mock(generate=draw))
+    def animate(directory,asset,description):
+        path=(directory/asset).with_stem((directory/asset).stem+'_anim')
+        Image.new('RGBA',(512,128),'green').save(path)
+        return path.relative_to(directory).as_posix()
+    image_client=Mock(pixel_key='test',generate=draw,animate=Mock(side_effect=animate))
+    monkeypatch.setattr(generator,'ImageClient',lambda:image_client)
     def request(endpoint,data,method='POST'):
         handler = object.__new__(server.Handler)
         handler.path = endpoint
@@ -127,7 +139,8 @@ def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch):
         getattr(handler,'do_'+method)()
         return handler.respond.call_args.args
 
-    status,draft = request('/api/generate',dict(game=game,topic='Samples',theme='Space lab',sprites=True))
+    status,draft = request('api/generate',dict(game=game,topic='Samples',theme='Space lab',sprites=not animated,animated_sprites=animated))
+    assert image_client.animate.call_count==(2 if animated else 0)
     assert status==200 and set(draft['levels'])=={1,2,3}
     assert all(url.startswith('/generated/.tmp/') for url in draft['levels'].values())
     assert not (tmp_path/'generated'/game).exists()
@@ -141,7 +154,8 @@ def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch):
         for _,art in server.artwork(cfg):
             assert (directory/art).read_bytes()==((tmp_path/data['path'][1:]).parent/art).read_bytes()
     item=next(i for i in server.catalog() if saved['config_path'] in i['levels'].values())
-    assert item['class1Sprite'].endswith('/assets/class1.png') and '/.tmp/' not in item['backgroundSprite']
+    expected_asset='/assets/class1_anim.png' if animated else '/assets/class1.png'
+    assert item['class1Sprite'].endswith(expected_asset) and '/.tmp/' not in item['backgroundSprite']
     assert request('/api/saved-game',data,'DELETE')[0]==400
     status,_=request('/api/saved-game',dict(game=game,path=saved['config_path']),'DELETE')
     assert status==200 and not directory.exists()
@@ -159,7 +173,7 @@ def test_import_loads_repository_env_before_client_configuration(tmp_path, monke
     shutil.copy(server.__file__, studio/'server.py')
     (studio.parent/'.env').write_text(
         ' export LLM_BASE_URL = "http://localhost:4321/v1"\n'
-        "LLM_API_KEY='test key #1'\nLLM_MODEL = auto\n"
+        "LLM_API_KEY='  test key #1  '\nLLM_MODEL = auto\n"
         'IMAGE_MODEL = test-image\nPIXELLAB_API_KEY=pixel-test\n'
     )
     for key in ('LLM_BASE_URL','LLM_API_KEY','LLM_MODEL','IMAGE_MODEL','PIXELLAB_API_KEY'):

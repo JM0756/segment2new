@@ -29,7 +29,7 @@
   "theme": {
     "title": "Neighborhood Vote",
     "setting": "Target reading",
-    "accent": "#365da3",
+    "accent": "#edc884",
     "tutorial": "A sensor reading lands on the number line. Select the three closest labeled samples to see how a nearest-neighbor classifier predicts its label.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -47,16 +47,22 @@
     },
     "prediction": "Majority vote:",
     "environment": {
-      "setting_name": "Neighborhood",
-      "floor_style": "turf",
+      "setting_name": "Map Library",
+      "floor_style": "parquet",
       "props": [
-        "trees",
-        "brass_rail"
+        "shelves",
+        "desk_lamps"
       ],
-      "primary_color": "#3d6156",
-      "secondary_color": "#466f5f",
-      "accent_color": "#c8d98b",
-      "layout": "party"
+      "primary_color": "#483448",
+      "secondary_color": "#805b59",
+      "accent_color": "#edc884",
+      "layout": "archive"
+    },
+    "palette": {
+      "floor": "#483448",
+      "stripe": "#805b59",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

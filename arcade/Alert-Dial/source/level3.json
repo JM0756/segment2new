@@ -54,8 +54,8 @@
   },
   "theme": {
     "title": "Alert Dial",
-    "setting": "Tune the checkpoint cutoff to detect incidents while limiting false alarms.",
-    "accent": "#365da3",
+    "setting": "At the Emergency Reactor Checkpoint, tune the cutoff to catch incidents while limiting false alarms.",
+    "accent": "#ffbb59",
     "tutorial": "Move the dial and inspect precision and recall.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -72,16 +72,22 @@
       "Incident"
     ],
     "environment": {
-      "setting_name": "Checkpoint",
-      "floor_style": "asphalt",
+      "setting_name": "Emergency Reactor Checkpoint",
+      "floor_style": "deck",
       "props": [
         "barriers",
         "consoles"
       ],
-      "primary_color": "#42505d",
-      "secondary_color": "#374552",
-      "accent_color": "#f8c16a",
-      "layout": "clinical"
+      "primary_color": "#512e36",
+      "secondary_color": "#a54a35",
+      "accent_color": "#ffbb59",
+      "layout": "reactor-core"
+    },
+    "palette": {
+      "floor": "#512e36",
+      "stripe": "#a54a35",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

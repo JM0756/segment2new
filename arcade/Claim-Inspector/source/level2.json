@@ -10,8 +10,8 @@
   },
   "theme": {
     "title": "Claim Inspector",
-    "setting": "Compare each statement with the evidence record.",
-    "accent": "#365da3",
+    "setting": "At the Forensics Lab, check each incoming claim against the source records.",
+    "accent": "#a4f1d8",
     "tutorial": "Audit each sentence of an AI summary against the supplied evidence. A claim can be supported, contradicted, or left unresolved.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -39,16 +39,22 @@
       "Record B: 12 positive and 8 negative observations."
     ],
     "environment": {
-      "setting_name": "Evidence desk",
-      "floor_style": "parquet",
+      "setting_name": "Forensics Lab",
+      "floor_style": "stone",
       "props": [
-        "shelves",
+        "consoles",
         "desk_lamps"
       ],
-      "primary_color": "#453747",
-      "secondary_color": "#654c53",
-      "accent_color": "#e5c081",
-      "layout": "newsroom"
+      "primary_color": "#204953",
+      "secondary_color": "#639da2",
+      "accent_color": "#a4f1d8",
+      "layout": "laboratory"
+    },
+    "palette": {
+      "floor": "#204953",
+      "stripe": "#639da2",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

@@ -18,7 +18,7 @@ for(const file of ['default.json','level2.json']) {
   const p=L.makePool(c);assert.throws(()=>L.train(c,[]));
   assert.throws(()=>L.train(c,p.initial.filter(r=>r.label==='a')));
  });
- test(file+': initial pool deterministic and exact size',()=>{
-  assert.deepEqual(L.makePool(c),L.makePool(c));assert.equal(L.makePool(c).initial.length,c.training_pool.size);
+ test(file+': initial pool shuffles with exact size',()=>{
+  assert.notDeepEqual(L.makePool(c,()=>0),L.makePool(c,()=>0.99));assert.equal(L.makePool(c).initial.length,c.training_pool.size);
  });
 }

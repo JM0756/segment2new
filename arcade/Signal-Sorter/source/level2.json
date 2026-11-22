@@ -14,8 +14,8 @@
   },
   "theme": {
     "title": "Space Lab · Signal Sorter",
-    "setting": "Inspect incoming data cores at the Space Lab training bay.",
-    "accent": "#365da3",
+    "setting": "In the Dockside Sample Intake, inspect each core before adding it to the training set.",
+    "accent": "#71e6e2",
     "tutorial": "Accept a solid core. Filter a cracked core before it enters the training set.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -32,16 +32,22 @@
       "Cracked core"
     ],
     "environment": {
-      "setting_name": "Space Lab",
+      "setting_name": "Dockside Sample Intake",
       "floor_style": "deck",
-      "layout": "laboratory",
+      "layout": "space-station",
       "props": [
-        "consoles",
-        "barriers"
+        "viewport",
+        "airlock"
       ],
-      "primary_color": "#204952",
-      "secondary_color": "#397480",
-      "accent_color": "#a3f7be"
+      "primary_color": "#283d58",
+      "secondary_color": "#405775",
+      "accent_color": "#71e6e2"
+    },
+    "palette": {
+      "floor": "#283d58",
+      "stripe": "#405775",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

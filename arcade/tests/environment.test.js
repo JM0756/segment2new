@@ -11,7 +11,8 @@ function recorder(){
 }
 test('legacy themes select the same architecture as explicit layouts',()=>{
   for(const [hint,layout,landmark] of [
-    ['Space Station','space-station','#dea97a'],['Speakeasy','speakeasy','#641f39'],
+    ['Space Station','space-station','#dea97a'],['Reactor Core','reactor-core','#ffe28a'],
+    ['Observation Deck','observation-deck','#847886'],['Speakeasy','speakeasy','#641f39'],
     ['Frat Party','party','#fb68ba'],['Fallout','wasteland','#b4dc58'],
     ['Autoimmune','clinical','#6fd8cf'],['research laboratory','laboratory','#6fd8cf'],
     ['Newsroom','newsroom','#be9369'],['Archive','archive','#be9369']

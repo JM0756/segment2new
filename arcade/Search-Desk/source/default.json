@@ -28,7 +28,7 @@
       "Welcome note — This course has a final project."
     ],
     "environment": {
-      "setting_name": "Archive",
+      "setting_name": "Local Archive",
       "floor_style": "stone",
       "props": [
         "shelves",

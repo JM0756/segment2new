@@ -39,7 +39,7 @@
     },
     "prediction": "Majority vote:",
     "environment": {
-      "setting_name": "Neighborhood",
+      "setting_name": "Block Party",
       "floor_style": "turf",
       "props": [
         "trees",

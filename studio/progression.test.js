@@ -15,11 +15,11 @@ test('tutorial completion opens level one and enables remix only outside tutoria
   assert.ok(p.canRemix(1,unlocked));
   assert.equal(p.canRemix(0,unlocked),false);
 });
-test('level two unlock requires a completed level one and at least 80 percent',()=>{
+test('level two unlock requires a completed level one and at least 75 percent',()=>{
   assert.equal(p.complete(0,1,{passed:true,accuracy:100,stars:3}),0);
   assert.equal(p.complete(1,1,{passed:false,accuracy:90,stars:3}),1);
-  assert.equal(p.complete(1,1,{passed:true,accuracy:79.9,stars:3}),1);
-  assert.equal(p.complete(1,1,{passed:true,accuracy:80,stars:3}),2);
+  assert.equal(p.complete(1,1,{passed:true,accuracy:74.9,stars:3}),1);
+  assert.equal(p.complete(1,1,{passed:true,accuracy:75,stars:3}),2);
   assert.equal(p.enter(2,2),2);
 });
 
@@ -40,14 +40,14 @@ async function mountStudio(){
     location:{origin:'http://localhost:8000'},window:{matchMedia:()=>({matches:false}),addEventListener:(k,f)=>listeners[k]=f},
     localStorage:{getItem:k=>records.get(k),setItem:(k,v)=>records.set(k,v)},
     fetch:async()=>({ok:true,json:async()=>({items:[item],health:{model:'auto'}})}),
-    Option:class{},URL,URLSearchParams,crypto:require('node:crypto'),setInterval(fn,ms){intervals.set(ms,fn);return ms;},clearInterval(ms){intervals.delete(ms);}});
+    setTimeout(fn,ms){intervals.set(ms,fn);return ms;},clearTimeout(ms){intervals.delete(ms);},Option:class{},URL,URLSearchParams,crypto:require('node:crypto'),setInterval(fn,ms){intervals.set(ms,fn);return ms;},clearInterval(ms){intervals.delete(ms);}});
   for(const file of ['../arcade/environment.js','progression.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),context);
   await new Promise(resolve=>setImmediate(resolve));
   return {get,context,intervals,listeners,game,levels,records,item};
 }
 
 test('Studio mounts the default tutorial first and gates the floating remix control',async()=>{
-  const {get,listeners,game,levels,records}=await mountStudio();
+  const {get,listeners,game,levels,records,intervals}=await mountStudio();
   get('catalog').children[0].onclick();
   const stage=get('stage');
   assert.equal(stage.src.searchParams.get('mode'),'tutorial');
@@ -57,7 +57,7 @@ test('Studio mounts the default tutorial first and gates the floating remix cont
   function message(type,passed=true,accuracy=100){
     listeners.message({origin:'http://localhost:8000',source:stage.contentWindow,data:{
       type,archetype:game,level:Number(stage.src.searchParams.get('level')),
-      run:stage.src.searchParams.get('run'),accuracy,stars:accuracy>=80?3:2,passed}});
+      run:stage.src.searchParams.get('run'),accuracy,stars:accuracy>=75?3:2,passed}});
   }
   message('ARCADE_NEXT');assert.equal(stage.src.searchParams.get('level'),'0');
   message('ARCADE_PROGRESS');assert.equal(stage.src.searchParams.get('level'),'0');
@@ -73,7 +73,12 @@ test('Studio mounts the default tutorial first and gates the floating remix cont
     assert.equal(stage.src.searchParams.get('config'),levels[next]);
     assert.equal(get('stageChat').hidden,true);
   }
+  assert.equal(records.has('arcade-progress-v1/'+game),false);
+  get('saveProgress').onclick();assert.equal(get('saveProgress').title,'Progress saved');
+  assert.equal(get('saveProgress').dataset.saved,'true');intervals.get(1500)();
+  assert.equal(get('saveProgress').title,'Save progress');assert.equal(get('saveProgress').dataset.saved,undefined);
   assert.equal(Number(records.get('arcade-progress-v1/'+game)),3);
+  get('catalog').children[0].onclick();assert.equal(stage.src.searchParams.get('mode'),'tutorial');
 });
 
 test('plain Enter sends and modified or composing Enter leaves the text alone',async()=>{
@@ -181,4 +186,12 @@ test('theme buttons expose named icons and native keyboard controls',async()=>{
     get('mode-'+mode).onclick();
     assert.equal(context.document.documentElement.dataset.theme,mode);
   }
+});
+
+test('generation failures display the backend reason as text',async()=>{
+  const {get,context}=await mountStudio();
+  const reason='Chat endpoint returned HTTP 401: invalid gateway key';
+  context.fetch=async()=>({ok:false,status:502,json:async()=>({error:reason})});
+  get('theme').value='Haunted forest';await get('composer').onsubmit({preventDefault(){}});
+  assert.equal(get('thread').children[1].textContent,reason);
 });

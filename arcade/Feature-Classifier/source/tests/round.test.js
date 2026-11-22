@@ -12,8 +12,9 @@ for (const file of ['default']) {
 const {createRound}=require('../game.js');
 test('classify, test broken shortcut, retrain on balanced examples',()=>{
   const round=createRound(require('../default.json'));
-  [0,1,0].forEach(n=>round.act(n));
-  assert.equal(round.view().value,75);
-  round.submit();assert.match(round.view().note,/OVERFIT/);
-  round.retrain();assert.match(round.view().note,/CAUSAL MATCH/);
+  for(let i=0;i<6;i++)round.act(round.view().actors[1].badge);
+  assert.ok(round.view().locked);
+  const scores=[...round.view().score];round.act(0);assert.deepEqual(round.view().score,scores);
+  round.submit();assert.match(round.view().note,/Spurious Cue .*MISCLASSIFIED/);
+  round.retrain();round.submit();assert.match(round.view().note,/True Signal .*ACCURATE/);
 });

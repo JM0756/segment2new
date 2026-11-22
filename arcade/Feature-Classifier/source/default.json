@@ -60,7 +60,7 @@
     ],
     "featureLabels": {
       "green": "Quiet radio",
-      "red": "Static burst",
+      "red": "Loud static",
       "round": "Circular seal",
       "spiky": "Serrated seal",
       "aura": "Surface static",
@@ -73,7 +73,7 @@
       "team1": "#efab72"
     },
     "environment": {
-      "setting_name": "Orbital Station",
+      "setting_name": "Airlock Bay",
       "floor_style": "deck",
       "props": [
         "viewport",

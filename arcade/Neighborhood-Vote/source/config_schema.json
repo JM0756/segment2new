@@ -222,7 +222,12 @@
                 "laboratory",
                 "clinical",
                 "newsroom",
-                "archive"
+                "archive",
+                "reactor-core",
+                "observation-deck",
+                "forest-edge",
+                "misty-hollow",
+                "ancient-ruins"
               ]
             }
           }

@@ -1,6 +1,6 @@
 import json
 
-PROMPT_VERSION = "fgp-v2"
+PROMPT_VERSION = "fgp-v3"
 SPRITE_STYLE = ("16-bit pixel art chibi avatar character sprite matching a standardized blocky base template "
                 "(square pixel head with two dark pixel eyes, compact rectangular body, bold 2px dark outline), "
                 "wearing <theme outfit/accessories>, centered full-body standing pose, isolated on pure solid "
@@ -49,7 +49,7 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
     inputs["constraints"].append(
         "Design a complete theme.environment for this specific world: setting_name, floor_style, "
         "primary_color, secondary_color, accent_color and at least two distinct perimeter props. "
-        "Select the architectural layout matching the scenario (space-station, speakeasy, party, wasteland, laboratory, clinical, newsroom, archive). Choose layout, floor_style and props from config_schema. Omit preset for a custom setting. "
+        "Each tier visits a distinct location within the world. Change layout, perimeter props and palette while preserving class identities, feature identifiers and cue terminology. Select the architectural layout matching the scenario (space-station, speakeasy, party, wasteland, laboratory, clinical, newsroom, archive, reactor-core, observation-deck, forest-edge, misty-hollow, ancient-ruins). Choose layout, floor_style and props from config_schema. Omit preset for a custom setting. "
         "Never supply class0Sprite, class1Sprite, backgroundSprite or image asset paths; the image stage writes them."
     )
     if level == 3:
@@ -61,9 +61,17 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         }.get(archetype, "Require several decisions to solve the mastery round."))
     for name in ("config_schema", "default", "levels"):
         path = source / (name + ".json")
+        if name=="default" and level>1:
+            path = source/f"level{level}.json"
         inputs[name] = json.loads(path.read_text())
     inputs["evaluation_rules"] = {
-        "Feature-Classifier": "One true and one spurious binary feature. Add one noise feature at higher levels. Supply featureLabels for every feature name and value. Curveballs must specify all features.",
+        "Feature-Classifier": (
+            "Use one true and one spurious binary feature, plus one noise feature at higher levels. "
+            "Supply featureLabels for every feature name and value. Each curveball item must map "
+            "every feature name, including noise, to one of its declared values. The first spurious "
+            "value predicts class A and the second predicts class B. Set expected_model_failure "
+            "to true exactly when that prediction disagrees with class_rule."
+        ),
         "Signal-Sorter": "Show two chibi lab couriers carrying their respective samples. Use 0 for an intact, clean sample and 1 for a damaged, noisy sample. Label the two visually distinct samples in theme.options. Mix both classes in each wave. Set pace to 0.7, 1.4 or 2.1 by level.",
         "Alert-Dial": "A winning cutoff flags at least minHits records, all positive.",
         "Claim-Inspector": "Each claim has one answer index in theme.options. Match claims and answers in sequence.",

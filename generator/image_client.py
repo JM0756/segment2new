@@ -95,6 +95,45 @@ class ImageClient:
         self.pixel_base = (os.getenv("PIXELLAB_BASE_URL") or "https://api.pixellab.ai/v1").strip().rstrip("/")
         self.model = os.getenv("IMAGE_MODEL", "auto")
 
+    def animate(self, directory, asset, description):
+        """Build a four-frame horizontal sheet from PixelLab's 64px text animation."""
+        source = directory / asset
+        relative = Path(asset).with_stem(source.stem + "_anim")
+        try:
+            with Image.open(source) as image:
+                reference = image.convert("RGBA").resize((64, 64), Image.Resampling.NEAREST)
+            buffer = io.BytesIO()
+            reference.save(buffer, format="PNG")
+            payload = {
+                "image_size": {"width": 64, "height": 64}, "description": description,
+                "action": "Four-frame in-place walk cycle with a resting pose. Keep the character centered.",
+                "n_frames": 4, "direction": "south", "view": "low top-down",
+                "reference_image": {"type": "base64", "base64": base64.b64encode(buffer.getvalue()).decode("ascii")},
+            }
+            request = Request(self.pixel_base + "/animate-with-text", json.dumps(payload).encode(), {
+                "Authorization": f"Bearer {self.pixel_key}", "Content-Type": "application/json",
+                "User-Agent": "ur2phd-generator/1.0",
+            })
+            with urlopen(request, timeout=20) as response:
+                frames = json.load(response)["images"]
+            if not isinstance(frames, list) or len(frames) != 4:
+                raise ValueError("PixelLab animation needs four frames")
+            sheet = Image.new("RGBA", (512, 128))
+            for index, frame in enumerate(frames):
+                encoded = frame["base64"].split(",")[-1]
+                with Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))) as image:
+                    if image.width != image.height:
+                        raise ValueError("Expected square animation frames")
+                    cell = image.convert("RGBA").resize((128, 128), Image.Resampling.NEAREST)
+                    if not cell.getchannel("A").getbbox():
+                        raise ValueError("Empty animation frame")
+                    sheet.paste(cell, (index * 128, 0))
+            sheet.save(directory / relative, format="PNG")
+        except (OSError, HTTPException, ValueError, KeyError, AttributeError, TypeError,
+                SyntaxError, Image.DecompressionBombError) as exc:
+            raise ImageGenerationError(str(exc)) from exc
+        return relative.as_posix()
+
     def generate(self, prompt, directory, run_slug, slot):
         headers = {"Content-Type": "application/json", "User-Agent": "ur2phd-generator/1.0"}
         scene = slot == "backgroundSprite"
@@ -119,7 +158,7 @@ class ImageClient:
             request = Request(endpoint, json.dumps(payload).encode(), headers)
             for attempt in range(2):
                 try:
-                    with urlopen(request, timeout=180) as response:
+                    with urlopen(request, timeout=30) as response:
                         result = json.load(response)
                     break
                 except HTTPError as error:
@@ -127,18 +166,19 @@ class ImageClient:
                         raise
                     error.close()
                     sleep(10)
-            if self.pixel_key:
-                encoded = result["image"]["base64"]
+            item = result.get("image") or (result.get("data") or [result])[0]
+            if isinstance(item,str):
+                item = {"url":item} if item.startswith(("https://","http://")) else {"base64":item}
+            encoded = item.get("base64") or item.get("b64_json")
+            if encoded:
                 if encoded.startswith("data:"):
                     encoded = encoded.split(",", 1)[1]
                 raw_bytes = base64.b64decode(encoded, validate=True)
-            elif result["data"][0].get("b64_json"):
-                raw_bytes = base64.b64decode(result["data"][0]["b64_json"], validate=True)
             else:
-                url = result["data"][0]["url"]
+                url = item["url"]
                 if urlsplit(url).scheme not in ("http", "https"):
                     raise ValueError("Expected an HTTP(S) image URL")
-                with urlopen(url, timeout=180) as response:
+                with urlopen(url, timeout=30) as response:
                     raw_bytes = response.read()
             try:
                 with Image.open(io.BytesIO(raw_bytes)) as source:

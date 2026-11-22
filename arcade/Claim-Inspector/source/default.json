@@ -9,7 +9,7 @@
   },
   "theme": {
     "title": "Claim Inspector",
-    "setting": "Compare each statement with the evidence record.",
+    "setting": "At the Evidence Desk, check each incoming claim against the source records.",
     "accent": "#365da3",
     "tutorial": "Audit each sentence of an AI summary against the supplied evidence. A claim can be supported, contradicted, or left unresolved.",
     "practice": "Practice selecting an item below.",
@@ -37,7 +37,7 @@
       "Record B: 12 positive and 8 negative observations."
     ],
     "environment": {
-      "setting_name": "Evidence desk",
+      "setting_name": "Evidence Desk",
       "floor_style": "parquet",
       "props": [
         "shelves",

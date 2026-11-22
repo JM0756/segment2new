@@ -50,8 +50,8 @@
   },
   "theme": {
     "title": "Alert Dial",
-    "setting": "Tune the checkpoint cutoff to detect incidents while limiting false alarms.",
-    "accent": "#365da3",
+    "setting": "At the Orbital Quarantine Gate, tune the cutoff to catch incidents while limiting false alarms.",
+    "accent": "#71e6e2",
     "tutorial": "Move the dial and inspect precision and recall.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -68,16 +68,22 @@
       "Incident"
     ],
     "environment": {
-      "setting_name": "Checkpoint",
-      "floor_style": "asphalt",
+      "setting_name": "Orbital Quarantine Gate",
+      "floor_style": "deck",
       "props": [
-        "barriers",
-        "consoles"
+        "viewport",
+        "airlock"
       ],
-      "primary_color": "#42505d",
-      "secondary_color": "#374552",
-      "accent_color": "#f8c16a",
-      "layout": "clinical"
+      "primary_color": "#283d58",
+      "secondary_color": "#405775",
+      "accent_color": "#71e6e2",
+      "layout": "space-station"
+    },
+    "palette": {
+      "floor": "#283d58",
+      "stripe": "#405775",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

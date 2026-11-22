@@ -58,6 +58,8 @@ def clean_cached_sprites(folder):
             continue
         try:
             with Image.open(path) as source:
+                if source.width >= 2 * source.height:
+                    continue  # Horizontal animation sheets already have per-frame alignment.
                 image = source.convert("RGBA")
                 if not image.getpixel((0,0))[3]:
                     continue
@@ -281,8 +283,11 @@ def operation(endpoint, data):
         if job:
             with progress_lock:
                 progress_messages[job] = message
-    options = dict(root=ROOT, log=ROOT/'generator/logs/generation_logs.jsonl',
-                   generate_sprites=bool(data.get('sprites')), progress=progress, raise_on_failure=True)
+    animated = data.get('animated_sprites')
+    if animated is not None and not isinstance(animated, bool):
+        raise ValueError('animated_sprites must be a boolean')
+    options = dict(animated_sprites=animated, root=ROOT, log=ROOT/'generator/logs/generation_logs.jsonl',
+                   generate_sprites=bool(animated or data.get('sprites')), progress=progress, raise_on_failure=True)
     directory = draft_root()/game/uuid4().hex
     directory.mkdir(parents=True)
     options['output_dir'] = directory
@@ -304,14 +309,18 @@ def operation(endpoint, data):
             if original['archetype']=='orbit' and game=='Feature-Classifier':
                 original['archetype']='classifier'
             topic,setting = 'Revise activity',original['theme']['title']
-            options['generate_sprites'] = data.get('sprites',bool(list(artwork(original))))
+            options['generate_sprites'] = bool(animated or data.get('sprites',bool(list(artwork(original)))))
             if not options['generate_sprites']:
                 copy_art(original,candidate,directory)
             path = generate(client,game,topic,setting,level,revision=original,instruction=data['message'],**options)
-        options['generate_sprites'] = False  # Every tier inherits the first generated artwork.
+        # Keep character identities while generating a new arena per tier.
+        warnings = []
         for tier in (1,2,3):
             if tier != level:
-                generate(client,game,topic,setting,tier,previous=path,**options)
+                sibling = generate(client,game,topic,setting,tier,previous=path,**options)
+                warning = json.loads(sibling.with_suffix(".meta.json").read_text()).get("sprite_error")
+                if warning:
+                    warnings.append(f"Level {tier}: {warning}")
     except Exception:
         shutil.rmtree(directory)
         raise
@@ -333,7 +342,7 @@ def operation(endpoint, data):
         summary += ' You’ll work with ' + ', '.join(labels[:3]) + '.'
     summary += ' ' + lessons[game]
     return dict(ok=True, config_path=public(path), config=cfg, summary=summary,
-                levels=bundle_levels(directory),message=meta.get('sprite_error'))
+                levels=bundle_levels(directory),message=' '.join(filter(None,[meta.get('sprite_error'),*warnings])))
 
 
 def gateway_status():
@@ -419,6 +428,7 @@ class Handler(BaseHTTPRequestHandler):
         self.change_library_or_generate(delete=True)
 
     def do_POST(self):
+        self.path = "/"+urlsplit(self.path).path.strip("/")
         self.change_library_or_generate()
 
     def change_library_or_generate(self, delete=False):

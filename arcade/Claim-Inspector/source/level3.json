@@ -11,8 +11,8 @@
   },
   "theme": {
     "title": "Claim Inspector",
-    "setting": "Compare each statement with the evidence record.",
-    "accent": "#365da3",
+    "setting": "At the Satellite Verification Room, check each incoming claim against the source records.",
+    "accent": "#8dd8ff",
     "tutorial": "Audit each sentence of an AI summary against the supplied evidence. A claim can be supported, contradicted, or left unresolved.",
     "practice": "Practice selecting an item below.",
     "begin": "Begin round",
@@ -41,16 +41,22 @@
       "Both counts cover Monday only. Unverified submissions are pending review."
     ],
     "environment": {
-      "setting_name": "Evidence desk",
-      "floor_style": "parquet",
+      "setting_name": "Satellite Verification Room",
+      "floor_style": "deck",
       "props": [
-        "shelves",
-        "desk_lamps"
+        "viewport",
+        "consoles"
       ],
-      "primary_color": "#453747",
-      "secondary_color": "#654c53",
-      "accent_color": "#e5c081",
-      "layout": "newsroom"
+      "primary_color": "#15213f",
+      "secondary_color": "#32466b",
+      "accent_color": "#8dd8ff",
+      "layout": "observation-deck"
+    },
+    "palette": {
+      "floor": "#15213f",
+      "stripe": "#32466b",
+      "team0": "#7de0df",
+      "team1": "#efab72"
     }
   }
 }

@@ -13,6 +13,6 @@ test('verification requires inspecting evidence and distinguishes extrapolation'
   const cfg=require('../level2.json');
   const round=require('../game.js').createRound(cfg);
   round.act(0);round.submit();assert.equal(round.view().target,0);
-  for(const n of cfg.mechanics.answers){round.inspect();round.act(n);round.submit();}
+  for(const _ of cfg.mechanics.answers){const i=cfg.theme.claims.indexOf(round.view().subject);round.inspect();round.act(cfg.mechanics.answers[i]);round.submit();}
   assert.equal(round.view().value,100);assert.ok(round.view().done);
 });
