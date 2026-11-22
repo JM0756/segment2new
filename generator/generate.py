@@ -15,12 +15,12 @@ from uuid import uuid4
 if __package__:
     from .settings import load_env
     from .image_client import ImageClient, ImageGenerationError
-    from .llm_client import APIError, LLMClient, parse_config
+    from .llm_client import APIError, GatewayTimeout, LLMClient, parse_config
     from .prompts import KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
 else:
     from settings import load_env
     from image_client import ImageClient, ImageGenerationError
-    from llm_client import APIError, LLMClient, parse_config
+    from llm_client import APIError, GatewayTimeout, LLMClient, parse_config
     from prompts import KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -198,8 +198,79 @@ def annotate_classifier_cases(mechanics):
         case["expected_model_failure"] = actual_a != shortcut_a
 
 
+def tier_default(source, level):
+    return json.loads((source / ("default.json" if level == 1 else f"level{level}.json")).read_text())
+
+
+def tier_base(source, level, previous, used_layouts):
+    config = tier_default(source, level)
+    if not previous:
+        return config
+    prior = previous["theme"]
+    theme = config["theme"]
+    room = theme["environment"]
+    rooms = [tier_default(source, n)["theme"]["environment"] for n in (1, 2, 3)]
+    room = next(env for env in [room, *rooms] if env["layout"] not in used_layouts)
+    origin = prior["environment"]["layout"]
+    for family in (("forest-edge", "misty-hollow", "ancient-ruins"),
+                   ("space-station", "reactor-core", "observation-deck")):
+        if origin in family:
+            layouts = [family[level - 1], *family]
+            room = dict(room, layout=next(layout for layout in layouts if layout not in used_layouts))
+            if origin in ("forest-edge", "misty-hollow", "ancient-ruins"):
+                room["props"] = list(prior["environment"]["props"])
+            break
+    room = dict(room, setting_name=f"{prior['environment']['setting_name']} · {room['layout'].replace('-', ' ')}")
+    for key in ("setting", "tutorial", "practice", "hint", "axes", "sources", "classLabels"):
+        if key in prior:
+            theme[key] = copy.deepcopy(prior[key])
+    theme.update(title=f"{prior['title']} · Level {level}", environment=room)
+    if "options" in prior:
+        size = len(theme["options"])
+        theme["options"] = (prior["options"] + theme["options"][len(prior["options"]):])[:size]
+    if config["archetype"] == "audit":
+        answers = previous["mechanics"]["answers"]
+        indices = [(i + level - 1) % len(answers) for i in range(len(config["mechanics"]["answers"]))]
+        config["mechanics"]["answers"] = [answers[i] for i in indices]
+        theme["claims"] = [prior["claims"][i] for i in indices]
+        theme["options"] = list(prior["options"])
+    if config["archetype"] == "neighbors":
+        old_classes = list(dict.fromkeys(config["mechanics"]["classes"]))
+        mapping = dict(zip(old_classes, list(prior["classLabels"])))
+        config["mechanics"]["classes"] = [mapping.get(c, next(iter(prior["classLabels"]))) for c in config["mechanics"]["classes"]]
+    return config
+
+
+def unpack_levels(response, level):
+    try:
+        data = parse_config(response)
+    except ValueError:
+        # A token cap may cut off a later tier after the anchor object has closed.
+        match = re.match(r'^\s*(?:```json\s*)?\{\s*"level' + str(level) + r'"\s*:\s*', response)
+        if not match:
+            raise
+        levels = {}
+        decoder = json.JSONDecoder()
+        start = match.end()
+        key = f"level{level}"
+        while True:
+            try:
+                value, end = decoder.raw_decode(response, start)
+            except ValueError:
+                if not levels:
+                    raise
+                break
+            levels[key] = value
+            following = re.match(r'\s*,\s*"(level[123])"\s*:\s*', response[end:])
+            if not following:
+                break
+            key, start = following.group(1), end + following.end()
+        return levels
+    return data if isinstance(data, dict) else {}
+
+
 def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False,
-             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None, animated_sprites=None):
+             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None, animated_sprites=None, bundle=None):
     generate_sprites = generate_sprites or animated_sprites is True
     started = monotonic()
     source = GAMES / archetype / "source"
@@ -244,6 +315,13 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
             "instructions": "Return the complete revised game config directly. Apply the requested setting "
                             "to every entity label, tutorial, hint and feedback. Preserve unrelated mechanics."
         })})
+    if bundle is not None and not previous:
+        messages[0]["content"] = "Return one compact JSON level bundle. Apply the requested setting and respect the supplied schema for all overridden fields."
+        messages.append({"role": "user", "content": f"Produce all tiers in ONE JSON object. Write level{level} first, "
+                         'then the other level keys (level1, level2, level3). Each value is {"theme": {...}} '
+                         'with only customized theme fields. Tier-specific mechanics and missing theme fields '
+                         'come from validated templates. Use distinct environments. Stay under 1400 tokens.'})
+    fallback_reason = None
     failures = []
     api_errors = []
     output = None
@@ -252,9 +330,36 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
             progress(f"Level {level} · generating config · attempt {attempt}/3")
         print(f"Level {level}, attempt {attempt}/3: waiting for {client.model}", flush=True)
         try:
-            response = client.complete(messages)
-            messages.append({"role": "assistant", "content": response})
-            config = parse_config(response)
+            if bundle is None:
+                response = client.complete(messages)
+                messages.append({"role": "assistant", "content": response})
+                config = parse_config(response)
+            else:
+                key = f"level{level}"
+                if not previous:
+                    try:
+                        response = client.complete(messages)
+                        messages.append({"role":"assistant", "content":response})
+                        levels = unpack_levels(response, level)
+                        bundle.clear()
+                        bundle.update(levels if key in levels else {key:levels})
+                    except GatewayTimeout as exc:
+                        fallback_reason = f"Gateway timeout. Using the local starting configuration. {exc}"
+                        bundle[key] = {"theme": {}}
+                entry = bundle.get(key)
+                base = copy.deepcopy(revision) if revision else tier_base(source, level, previous_config, used_layouts)
+                if previous and (not isinstance(entry, dict) or attempt > 1):
+                    fallback_reason = "Derived from the accepted level using the local tier template."
+                    config = base
+                elif isinstance(entry, dict) and set(entry) == {"theme"} and isinstance(entry["theme"], dict):
+                    for field, value in entry["theme"].items():
+                        if isinstance(value, dict) and isinstance(base["theme"].get(field), dict):
+                            base["theme"][field].update(value)
+                        else:
+                            base["theme"][field] = value
+                    config = base
+                else:
+                    config = entry
         except APIError as exc:
             category, error = "api_error", str(exc)
             api_errors.append({"attempt": attempt, "message": error})
@@ -286,6 +391,9 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 output = (output_dir or root / "generated" / archetype) / f"{stem}_L{level}.json"
                 output.parent.mkdir(parents=True, exist_ok=True)
                 meta = dict(common, schema_version="v1", attempts=attempt, run_id=run_id)
+                if fallback_reason:
+                    meta["fallback_reason"] = fallback_reason
+                    print(fallback_reason, flush=True)
                 if generate_sprites:
                     if progress:
                         progress(f"Level {level} · generating character sprites")
@@ -349,11 +457,12 @@ def main():
         parser.error("--regenerate-level requires --level 1")
     client = LLMClient()
     inputs = client, args.archetype, args.topic, args.theme
-    path = generate(*inputs, args.level, generate_sprites=args.generate_sprites)
+    bundle = {} if args.regenerate_level else None
+    path = generate(*inputs, args.level, generate_sprites=args.generate_sprites, bundle=bundle)
     if path and args.regenerate_level:
         first = path
         for tier in range(2, args.regenerate_level + 1):
-            path = generate(*inputs, tier, previous=first, generate_sprites=args.generate_sprites)
+            path = generate(*inputs, tier, previous=first, generate_sprites=args.generate_sprites, bundle=bundle)
             if not path:
                 break
     return 0 if path else 1

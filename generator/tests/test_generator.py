@@ -121,23 +121,58 @@ def test_gateway_request(monkeypatch, base):
         monkeypatch.setenv("LLM_BASE_URL", base)
     monkeypatch.delenv("LLM_MODEL", raising=False)
     monkeypatch.setenv("LLM_API_KEY", "test-key")
-    response = BytesIO(b'{"choices":[{"message":{"content":"ok"}}]}')
+    response = Mock(status_code=200)
+    response.json.return_value = {"choices":[{"message":{"content":"ok"}}]}
     send = Mock(return_value=response)
-    monkeypatch.setattr("generator.llm_client.urlopen", send)
+    monkeypatch.setattr("generator.llm_client.requests.post", send)
     assert LLMClient().complete([]) == "ok"
-    request = send.call_args.args[0]
-    assert request.full_url == "http://localhost:3001/v1/chat/completions"
-    assert request.get_header("Authorization") == "Bearer test-key"
-    assert request.get_header("User-agent") == "ur2phd-generator/1.0"
-    assert json.loads(request.data)["model"] == "auto"
+    assert send.call_args.args[0] == "http://localhost:3001/v1/chat/completions"
+    args = send.call_args.kwargs
+    assert args["timeout"] == (10.0, 90.0)
+    assert args["headers"]["Authorization"] == "Bearer test-key"
+    assert args["headers"]["User-Agent"] == "ur2phd-generator/1.0"
+    assert args["json"]["model"] == "auto" and args["json"]["max_tokens"] == 1400
 
 
-def test_gateway_error_body(monkeypatch):
-    error = HTTPError("http://localhost:3001/v1/chat/completions", 502, "Bad Gateway",
-                      {}, BytesIO(b"  provider unavailable\xff  "))
-    monkeypatch.setattr("generator.llm_client.urlopen", Mock(side_effect=error))
-    with pytest.raises(APIError, match="HTTP 502.*provider unavailable�$"):
+@pytest.mark.parametrize("status", [502, 503])
+def test_gateway_error_body(monkeypatch, status):
+    send = Mock(return_value=Mock(status_code=status,reason="busy",content=b" provider unavailable "))
+    monkeypatch.setattr("generator.llm_client.requests.post", send)
+    pause = Mock()
+    monkeypatch.setattr("generator.llm_client.sleep", pause)
+    with pytest.raises(APIError, match=f"HTTP {status}.*provider unavailable$"):
         LLMClient().complete([])
+    assert send.call_count == 2
+    pause.assert_called_once_with(1.5)
+
+
+@pytest.mark.parametrize("game", ARCHETYPES)
+def test_bundle_timeout_still_builds_three_valid_tiers(tmp_path, monkeypatch, game):
+    from requests.exceptions import ReadTimeout
+    send = Mock(side_effect=ReadTimeout("The read operation timed out"))
+    monkeypatch.setattr("generator.llm_client.requests.post", send)
+    monkeypatch.setattr("generator.llm_client.sleep", Mock())
+    opts = dict(bundle={}, root=tmp_path, log=tmp_path/"log", raise_on_failure=True)
+    client = LLMClient()
+    first = generate(client,game,"Science","Forest",1,**opts)
+    paths = [first] + [generate(client,game,"Science","Forest",n,previous=first,**opts) for n in (2,3)]
+    assert send.call_count == 2
+    assert len({json.loads(p.read_text())["theme"]["environment"]["layout"] for p in paths}) == 3
+
+
+def test_partial_bundle_uses_one_completion(tmp_path):
+    client = Mock(model="test")
+    client.complete.return_value = '{"level1":{"theme":{"title":"Forest detective"}},"level2":{"theme":{"title":"Forest echoes"}},"level3":'
+    opts = dict(bundle={}, root=tmp_path, log=tmp_path/"log", raise_on_failure=True)
+    args = client,"Feature-Classifier","Science","Forest"
+    first = generate(*args,1,**opts)
+    for n in (2,3):
+        path = generate(*args,n,previous=first,**opts)
+        if n == 2:
+            assert json.loads(path.read_text())["theme"]["title"] == "Forest echoes"
+    assert json.loads(first.read_text())["theme"]["title"] == "Forest detective"
+    client.complete.assert_called_once()
+
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/ZQAAAABJRU5ErkJggg==")
 

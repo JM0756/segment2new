@@ -79,6 +79,18 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       const arena=elements.get('arena');arena.width=560;arena.height=144;arena.context=drawing;
       frame(performance.now());assert.equal(drawing.imageSmoothingEnabled,true);
       assert.equal(arena.width,1120);assert.equal(arena.height,490);
+      if(dir==='Feature-Classifier' && configPath==='default.json'){
+        for(const [width,height,scale] of [[800,450,450/620],[1920,1080,1.25],[390,740,.68]]){
+          arena.clientWidth=width;arena.clientHeight=height;frame(performance.now());
+          const layout=vm.runInContext('layout',context);
+          assert.equal(layout.uiScale,scale);
+          assert.equal(layout.rightMargin,Math.max(210*scale,width*.24));
+          assert.ok(layout.rightLane*width+46*scale<=width-layout.rightMargin+.001);
+          assert.ok(layout.rightLane>layout.leftLane);
+          assert.equal(vm.runInContext('worldWidth*layout.uiScale',context),width);
+          assert.equal(arena.width,width*2); // DPR changes resolution independently of layout.
+        }
+      }
       elements.get('continue').onclick();
       const initial=elements.get('instruction').textContent;
       elements.get('actions').children[1].onclick();

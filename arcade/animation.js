@@ -16,10 +16,10 @@ const ArcadeHUD = {
     this.drawAvatarIcon(ctx,image,{...spec,frame,stride:walking?Math.round(2*wave):0,blink:frame%16===3},size);
     ctx.restore();
   },
-  laneCenter(side,total){
-    if(side===0)return .22;
-    if(side===1)return .78;
-    return .22+.56*(side-1)/(total-1);
+  laneCenter(side,total,left,right){
+    if(side===0)return left;
+    if(side===1)return right;
+    return left+(right-left)*(side-1)/(total-1);
   },
   createCohort() {
     const members=[],counts=[], laneCenter=this.laneCenter;
@@ -29,12 +29,12 @@ const ArcadeHUD = {
         counts[side]=index+1;
         members.push({actor,side,index,correct,start:now,x,y});
       },
-      frame(now,laneCount){
+      frame(now,laneCount,left=.22,right=.72,spacing=.02){
         const arrived=Array(laneCount).fill(0);
         const actors=members.map(member=>{
           const t=Math.min(1,Math.max(0,(now-member.start)/380)),ease=1-(1-t)**3;
-          const lane=laneCenter(member.side,laneCount);
-          const dx=lane+(member.index%5-2)*.030,dy=.69+Math.floor(member.index/5)*.047;
+          const lane=laneCenter(member.side,laneCount,left,right);
+          const dx=lane+(member.index%5-2)*spacing,dy=.69+Math.floor(member.index/5)*.047;
           if(t===1)arrived[member.side]++;
           return {...member,x:member.x+(dx-member.x)*ease,y:member.y+(dy-member.y)*ease,
             size:40-23*ease,walking:t<1,age:now-member.start};

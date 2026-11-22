@@ -35,7 +35,7 @@ test('classified actors ease toward their chosen lane and remain in arrival orde
   assert.ok(finished.actors.every(a=>!a.walking && a.size===17));
   assert.equal(finished.actors[0].actor,actor);
   assert.equal(finished.actors[0].correct,false);
-  assert.ok(finished.actors[1].x>.7);
+  assert.ok(finished.actors[1].x>.65);
 });
 
 test('a four-frame sheet uses square source rects at eight FPS and wraps',()=>{

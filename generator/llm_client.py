@@ -2,11 +2,17 @@
 import json
 import os
 import re
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from time import sleep
+
+import requests
+from urllib3.exceptions import ReadTimeoutError
 
 
 class APIError(Exception):
+    pass
+
+
+class GatewayTimeout(APIError):
     pass
 
 
@@ -41,19 +47,32 @@ class LLMClient:
         }
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"
-        payload = {"model": self.model, "messages": messages, "stream": False}
-        request = Request(self.base + "/chat/completions", json.dumps(payload).encode(), headers)
-        try:
-            with urlopen(request, timeout=180) as response:
-                result = json.load(response)["choices"][0]["message"]["content"]
-            if not isinstance(result, str):
-                raise ValueError("Expected a string in message.content")
-            return result
-        except HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace").strip()
-            msg = f"Chat endpoint returned HTTP {error.code}: {error.reason}"
-            if detail:
-                msg += f" - {detail}"
-            raise APIError(msg) from error
-        except (URLError, OSError, ValueError, KeyError, IndexError, TypeError) as error:
-            raise APIError(str(error)) from error
+        payload = {"model": self.model, "messages": messages, "stream": False, "max_tokens": 1400}
+        for attempt in range(2):
+            try:
+                response = requests.post(self.base + "/chat/completions", json=payload,
+                                         headers=headers, timeout=(10.0, 90.0))
+                if response.status_code in (502, 503) and attempt == 0:
+                    sleep(1.5)
+                    continue
+                if response.status_code >= 400:
+                    detail = response.content.decode("utf-8", errors="replace").strip()
+                    message = f"Chat endpoint returned HTTP {response.status_code}: {response.reason} - {detail}"
+                    if response.status_code == 504 or (response.status_code in (502, 503) and
+                                                       re.search(r"timed?\s*out|timeout", detail, re.I)):
+                        raise GatewayTimeout(message)
+                    raise APIError(message)
+                result = response.json()["choices"][0]["message"]["content"]
+                if not isinstance(result, str):
+                    raise ValueError("Expected a string in message.content")
+                return result
+            except requests.RequestException as exc:
+                # Requests wraps a timeout while reading the response body in ConnectionError.
+                if isinstance(exc, requests.Timeout) or isinstance(exc.args[0] if exc.args else None, ReadTimeoutError):
+                    if attempt == 0:
+                        sleep(1.5)
+                        continue
+                    raise GatewayTimeout(str(exc)) from exc
+                raise APIError(str(exc)) from exc
+            except (ValueError, KeyError, IndexError, TypeError) as exc:
+                raise APIError(str(exc)) from exc

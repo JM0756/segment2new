@@ -6,12 +6,43 @@ button:hover:enabled,button:focus-visible,button[aria-pressed=true]{outline:2px 
 .telemetry{top:8px;left:8px;max-width:46%;font-size:12px}.telemetry strong,.task strong{display:block}.scores{display:flex;gap:10px}.scores b:first-child{color:#96f3dc}.scores b:last-child{color:#ffd49e}
 #meter{height:5px;margin-top:3px;background:linear-gradient(to right,#ffd47a var(--value),#475e70 var(--value))}
 .task{right:8px;top:8px;max-width:48%;max-height:28vh;overflow:auto;font-size:12px}.task span{display:block}.task:empty,#callout:empty{display:none}#sources{display:flex;gap:3px;flex-wrap:wrap}#slider{vertical-align:middle;width:min(150px,23vw)}
-.keycaps{right:10px;bottom:52px;display:grid;justify-items:end;gap:2px;max-width:43%;max-height:40vh;overflow:auto}#actions{display:grid;justify-items:end;gap:2px}#actions button,.keycaps>button{font-size:12px;line-height:16px;min-height:23px;padding:2px 6px}#actions canvas{width:19px;height:19px;vertical-align:middle;image-rendering:pixelated;margin-left:4px}
+.arena-stage{
+  --edge:clamp(5px,1vmin,12px);
+  --dock-gap:clamp(4px,.6vh,8px);
+  --control-font:clamp(11px,1.05vw,14px);
+  --control-padding:clamp(5px,.65vh,8px) clamp(9px,1.1vw,14px);
+}
+.telemetry,.task{
+  padding:var(--control-padding);font-size:var(--control-font);
+  background:rgba(12,18,28,.34);border:1px solid rgba(255,255,255,.16);
+  text-shadow:0 1px 3px rgba(0,0,0,.85);overflow-wrap:anywhere;
+}
+.telemetry{top:var(--edge);left:var(--edge);max-height:28vh;overflow:auto}
+.task{top:var(--edge);right:var(--edge)}
+.scores,#sources{flex-wrap:wrap;gap:var(--dock-gap)}
+.keycaps{
+  right:var(--edge);bottom:calc(40px + 2 * var(--edge));
+  width:calc(var(--dock-width,24vw) - 2 * var(--edge));max-width:100%;
+  max-height:58vh;overflow:auto;padding:3px;
+  display:grid;justify-items:end;align-content:start;gap:var(--dock-gap);
+}
+#actions{width:100%;min-width:0;display:grid;justify-items:end;gap:var(--dock-gap)}
+.keycaps button{
+  max-width:100%;min-width:0;overflow-wrap:anywhere;line-height:1.2;
+  font-size:var(--control-font);padding:var(--control-padding);
+  color:white;text-shadow:0 1px 3px rgba(0,0,0,.85);
+  background:rgba(15,23,42,.28);border:1px solid rgba(255,255,255,.22);
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+}
+.keycaps button:is(:hover:enabled,:focus-visible,[aria-pressed=true]),#actions .field-trigger{
+  background:rgba(15,23,42,.52);border-color:#ffdc7a;
+}
+#actions canvas{width:clamp(14px,1.6vw,22px);height:auto;vertical-align:middle;image-rendering:pixelated;margin-left:var(--dock-gap)}
 #callout{bottom:12px;left:8px;max-width:55%;color:#ffdf98;font-size:12px}
 #guide{left:50%;bottom:12px;transform:translateX(-50%);background:#101c2af5;border:2px solid #ebbf6d;box-shadow:3px 3px #101b29;padding:10px 14px;width:min(480px,58%);z-index:2}
 #guide strong{font:700 11px monospace;letter-spacing:.16em;color:#ffd47a}#guide #skip{margin-left:auto}.arena-stage:has(#guide:not([hidden])) .task{display:none}#guide p{margin:3px 0 8px}#guide div{display:flex;justify-content:space-between}#guide button{font:700 12px monospace}
 .arena-stage:has(#guide:not([hidden])) .keycaps{right:8px;top:30%;bottom:auto;max-width:23%}
-@media(max-width:560px){#guide{bottom:50px;width:95%}.task{font-size:11px}.keycaps{max-width:52%}.arena-stage:has(#guide:not([hidden])) .keycaps{top:auto;bottom:4px;left:5px;right:auto;max-width:72%}.arena-stage:has(#guide:not([hidden])) #actions{display:flex;flex-wrap:wrap}.arena-stage:has(#guide:not([hidden])) #help{display:none}}
+@media(max-width:560px){#guide{bottom:50px;width:95%}.task{font-size:11px}.arena-stage:has(#guide:not([hidden])) .keycaps{top:auto;bottom:4px;left:5px;right:auto;max-width:72%}.arena-stage:has(#guide:not([hidden])) #actions{display:flex;flex-wrap:wrap}.arena-stage:has(#guide:not([hidden])) #help{display:none}}
 
 #actions .field-trigger{border-color:#ffdc7a;box-shadow:0 0 9px #ffc94f;color:#ffecb2}
 #guide #continue{order:2;margin-left:auto}#guide #skip{margin-left:0}

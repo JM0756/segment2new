@@ -135,7 +135,16 @@ function render() {
   }
 }
 let worldWidth=560,worldHeight=245;
-let scenery;
+let scenery, layout;
+function arenaLayout(logicalWidth,logicalHeight){
+  const uiScale=Math.max(.68,Math.min(1.25,Math.min(logicalWidth/1100,logicalHeight/620)));
+  const rightMargin=Math.max(210*uiScale,logicalWidth*.24);
+  // Keep the whole five-member row and count pill inside the playable area.
+  const playableWidth=Math.max(1,logicalWidth-rightMargin);
+  const rightLane=Math.max(0,Math.min(logicalWidth*.72,playableWidth-46*uiScale))/logicalWidth;
+  const leftLane=Math.min(.22,rightLane/3);
+  return {logicalWidth,logicalHeight,uiScale,rightMargin,rightLane,leftLane,playableWidth};
+}
 function resizeCanvas(){
   const dpr=window.devicePixelRatio||1;
   const width=Math.max(1,Math.round(canvas.clientWidth*dpr));
@@ -143,14 +152,20 @@ function resizeCanvas(){
   if(canvas.width!==width || canvas.height!==height){
     canvas.width=width;canvas.height=height;
   }
-  worldWidth=Math.min(660,Math.max(320,canvas.clientWidth));
-  worldHeight=worldWidth*height/width;
+  const logicalWidth=Math.max(1,canvas.clientWidth),logicalHeight=Math.max(1,canvas.clientHeight);
+  if(layout?.logicalWidth!==logicalWidth || layout.logicalHeight!==logicalHeight){
+    layout=arenaLayout(logicalWidth,logicalHeight);
+    document.documentElement.style.setProperty('--dock-width',layout.rightMargin+'px');
+  }
+  // One transform scales sprites, text, particles and pointer hit boxes together.
+  worldWidth=logicalWidth/layout.uiScale;
+  worldHeight=logicalHeight/layout.uiScale;
   ctx.setTransform(width/worldWidth,0,0,height/worldHeight,0,0);
   ctx.imageSmoothingEnabled=true;
 }
 function drawCohort(now,w,h){
   if(!view.lanes || guideStep>=0)return;
-  const {actors,arrived}=cohort.frame(now,view.lanes.length);
+  const {actors,arrived}=cohort.frame(now,view.lanes.length,layout.leftLane,layout.rightLane,Math.min(16/w,(layout.rightLane-layout.leftLane)/Math.max(5,5*(view.lanes.length-1))));
   for(const member of actors){
     const x=member.x*w,y=member.y*h,art=member.actor.art??member.actor.slot;
     ctx.save();ctx.translate(x-member.size/2,y-member.size);
@@ -180,12 +195,13 @@ function drawCohort(now,w,h){
     }
   }
   arrived.forEach((count,i)=>{
-    const x=w*ArcadeHUD.laneCenter(i,arrived.length),y=h*.76+Math.floor(Math.max(count-1,0)/5)*h*.047;
+    const x=w*ArcadeHUD.laneCenter(i,arrived.length,layout.leftLane,layout.rightLane),y=h*.76+Math.floor(Math.max(count-1,0)/5)*h*.047;
     const text='Classified: '+count;
     if(!view.actors?.some(actor=>actor.station)){
       ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.lineWidth=3;
       ctx.strokeStyle='#162831';ctx.fillStyle='#fff';
-      const name=view.lanes[i];ctx.strokeText(name,x,y+20,w*.26);ctx.fillText(name,x,y+20,w*.26);
+      const name=view.lanes[i],available=Math.min(88,w*(layout.rightLane-layout.leftLane)/Math.max(1,arrived.length-1));
+      ctx.strokeText(name,x,y+20,available);ctx.fillText(name,x,y+20,available);
     }
     ctx.font='bold 11px sans-serif';ctx.textAlign='center';
     const width=ctx.measureText(text).width+12;
@@ -203,14 +219,21 @@ function paint(now){
   const sw=scenery.width*zoom,sh=scenery.height*zoom;
   ArcadeEnvironment.blit(ctx,scenery,(w-sw)/2,(h-sh)/2,sw,sh);
   const actors=guideStep>=0?practiceActors:view.actors||view.names.slice(0,2).map((label,slot)=>({slot,label}));
+  const playWidth=layout.playableWidth/layout.uiScale;
+  const columns=Math.min(actors.length,Math.max(1,Math.floor(playWidth/85)));
+  const rows=Math.ceil(actors.length/columns);
   hits=[];
   actors.forEach((actor,i)=>{
     const effect=feedback?.actor===i&&!feedback.detached?feedback:null;
     const {label,slot,station}=effect?.entity||actor;
     const vx=station?0:(i%2?-1:1),age=Math.max(0,now-arrival);
-    const walking=actor.pace?Math.sin(age*actor.pace/1600)*w*.26:0;
-    const x=station&&view.lanes&&guideStep<0?w*(slot===0?.22:.78):effect?.x??walking+Math.round((i+1)*w/(actors.length+1)-vx*45*Math.max(0,1-age/900));
-    const y=effect?.y??(h/2+(i%2?12:-6));
+    const inLane=view.lanes && guideStep<0 && actors.some(a=>a.station);
+    const walking=actor.pace?Math.sin(age*actor.pace/1600)*playWidth*.20:0;
+    const row=Math.floor(i/columns),rowSize=Math.min(columns,actors.length-row*columns);
+    let anchor=playWidth*((i%columns)+.5)/rowSize;
+    if(inLane)anchor=w*(station?(slot===0?layout.leftLane:layout.rightLane):(layout.leftLane+layout.rightLane)/2);
+    const x=effect?.x??anchor+walking-vx*12*Math.max(0,1-age/450);
+    const y=effect?.y??(h/2+(row-(rows-1)/2)*Math.min(66,h*.50/rows)+(i%2?6:-4));
     if(guideStep===i+1){
       ctx.strokeStyle='#ffe18c';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(x,y+10,22,7,0,0,2*Math.PI);ctx.stroke();
     }
@@ -251,10 +274,18 @@ function paint(now){
       ctx.fillStyle=entity.sample?'#ff936f':'#80f5c4';ctx.fillRect(-4,-4,8,8);
       if(entity.sample){ctx.fillStyle='#182c3d';ctx.fillRect(-1,-5,2,5);ctx.fillRect(0,0,3,5);}ctx.restore();
     }
-    ctx.font='600 '+Math.max(11,13*w/canvas.clientWidth)+'px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-    ctx.textAlign='center';const name=String(label).slice(0,36),width=ctx.measureText(name).width+10;
-    const pillHeight=Math.max(18,20*w/canvas.clientWidth);
-    const center=Math.max(width/2+2,Math.min(w-width/2-2,x));
+    ctx.font='600 13px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign='center';
+    const available=inLane?w*(layout.rightLane-layout.leftLane)/2:playWidth/rowSize;
+    const width=Math.max(12,Math.min(ctx.measureText(label).width+10,available-4));
+    let name=String(label);
+    if(ctx.measureText(name).width>width-8){
+      name=name.slice(0,36);
+      while(name.length && ctx.measureText(name+'…').width>width-8)name=name.slice(0,-1);
+      name+='…';
+    }
+    const pillHeight=20;
+    const center=Math.max(width/2+2,Math.min(playWidth-width/2-2,x));
     ctx.fillStyle='#162831';ctx.beginPath();ctx.roundRect(center-width/2,y+16,width,pillHeight,pillHeight/2);ctx.fill();
     ctx.fillStyle='#fff';ctx.textBaseline='middle';ctx.fillText(name,center,y+16+pillHeight/2);ctx.textBaseline='alphabetic';
     hits.push({x,y,...actor});

@@ -286,7 +286,7 @@ def operation(endpoint, data):
     animated = data.get('animated_sprites')
     if animated is not None and not isinstance(animated, bool):
         raise ValueError('animated_sprites must be a boolean')
-    options = dict(animated_sprites=animated, root=ROOT, log=ROOT/'generator/logs/generation_logs.jsonl',
+    options = dict(bundle={}, animated_sprites=animated, root=ROOT, log=ROOT/'generator/logs/generation_logs.jsonl',
                    generate_sprites=bool(animated or data.get('sprites')), progress=progress, raise_on_failure=True)
     directory = draft_root()/game/uuid4().hex
     directory.mkdir(parents=True)
@@ -318,9 +318,10 @@ def operation(endpoint, data):
         for tier in (1,2,3):
             if tier != level:
                 sibling = generate(client,game,topic,setting,tier,previous=path,**options)
-                warning = json.loads(sibling.with_suffix(".meta.json").read_text()).get("sprite_error")
-                if warning:
-                    warnings.append(f"Level {tier}: {warning}")
+                metadata = json.loads(sibling.with_suffix(".meta.json").read_text())
+                for key in ("sprite_error", "fallback_reason"):
+                    if metadata.get(key):
+                        warnings.append(f"Level {tier}: {metadata[key]}")
     except Exception:
         shutil.rmtree(directory)
         raise
@@ -342,7 +343,7 @@ def operation(endpoint, data):
         summary += ' You’ll work with ' + ', '.join(labels[:3]) + '.'
     summary += ' ' + lessons[game]
     return dict(ok=True, config_path=public(path), config=cfg, summary=summary,
-                levels=bundle_levels(directory),message=' '.join(filter(None,[meta.get('sprite_error'),*warnings])))
+                levels=bundle_levels(directory),message=' '.join(filter(None,[meta.get('fallback_reason'),meta.get('sprite_error'),*warnings])))
 
 
 def gateway_status():
