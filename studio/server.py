@@ -19,16 +19,17 @@ from threading import Lock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from generator.settings import load_env
+
+load_env(ROOT / '.env')
+
 from generator.image_client import clean_sprite_background
 from generator.generate import ARCHETYPES, GAMES, generate, validate
-from generator.settings import load_env
 from generator.llm_client import LLMClient, APIError, normalize_base
 
 progress_messages = {}
 progress_lock = Lock()
 
-
-load_env(ROOT/'.env')
 
 
 def public(path):

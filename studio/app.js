@@ -192,7 +192,7 @@ function cards(){
 }
 async function refresh(){
   const r=await fetch('/api/catalog');if(!r.ok)throw Error('Unable to load the game library.');
-  const catalog=await r.json();items=catalog.items;showHealth(catalog.health);cards();
+  const catalog=await r.json();items=catalog.items;$('model').textContent='FreeLLMAPI / '+catalog.health.model;cards();
   const selected=$('game').value;
   $('game').replaceChildren(...[...new Set(items.map(i=>i.game))].map(g=>new Option(concepts[g]?.[1]||g,g)));
   if(selected)$('game').value=selected;
@@ -290,9 +290,6 @@ function shortcuts(e){
 function dismiss(){
   if(!$('stageChat').hidden){closeChat();$('remixToggle').focus();return true;}
   if($('saved').open){$('saved').close();$('savedToggle').focus();return true;}
-  for(const [id,trigger] of [['shortcuts','help'],['settings','gateway']]){
-    if($(id).matches(':popover-open')){$(id).hidePopover();$(trigger).focus();return true;}
-  }
   return false;
 }
 window.addEventListener('keydown',shortcuts);
@@ -300,22 +297,4 @@ $('stage').addEventListener('load',()=>{
   $('stage').contentDocument?.addEventListener('keydown',shortcuts);
   if(active&&!$('play').hidden)$('stage').focus();
 });
-function showHealth(s){
-  $('imageProvider').textContent=s.pixellab_configured?'Image provider: PixelLab':'Image provider: FreeLLMAPI';
-  $('model').textContent='FreeLLMAPI / '+s.model;
-  $('gateway').textContent=s.auth_required?'Gateway · key required':!s.online?'Gateway unavailable':
-    s.http_status===200?'Gateway online':'Gateway · HTTP '+s.http_status;
-  $('gateway').classList.toggle('online',s.online);
-  if(!$('settings').matches(':popover-open'))$('baseUrl').value=s.base_url;
-}
-$('gatewayForm').onsubmit=async e=>{
-  e.preventDefault();
-  try{
-    const response=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({base_url:$('baseUrl').value,api_key:$('apiKey').value,pixellab_api_key:$('pixelKey').value})});
-    const result=await response.json();if(!result.ok)throw Error(result.error);
-    $('apiKey').value='';$('pixelKey').value='';$('settingsMessage').textContent='';$('settings').hidePopover();showHealth(result);
-  }catch(err){$('settingsMessage').textContent=err.message;}
-};
-async function status(){try{showHealth(await (await fetch('/api/health')).json());}catch{$('gateway').textContent='Gateway unavailable';}}
-setInterval(status,30000);refresh().catch(e=>{$('status').textContent=e.message;});
+refresh().catch(e=>{$('status').textContent=e.message;});

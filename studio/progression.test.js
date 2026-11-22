@@ -113,7 +113,7 @@ test('theme selection and Alt+T cycle and persist the three themes',async()=>{
   const doc=context.document.documentElement;
   assert.equal(doc.dataset.theme,'dark');
   for(const mode of ['light','invert','dark']){
-    listeners.keydown({target:get('help'),key:'t',altKey:true,preventDefault(){}});
+    listeners.keydown({target:get('mode-dark'),key:'t',altKey:true,preventDefault(){}});
     assert.equal(doc.dataset.theme,mode);assert.equal(records.get('studio-theme'),mode);
   }
   get('mode-invert').onclick();assert.equal(doc.dataset.theme,'invert');
@@ -165,4 +165,20 @@ test('card banners keep both facing characters when background or sprite art loa
   assert.deepEqual(draws,[images[1],images[0]]);
   assert.equal(right.children[0],fallback);
   assert.equal(art.children[1],left);
+});
+
+test('theme buttons expose named icons and native keyboard controls',async()=>{
+  const html=require('node:fs').readFileSync(require('node:path').join(__dirname,'index.html'),'utf8');
+  const header=html.match(/<div class="controls">([\s\S]*?)<\/header>/)[1];
+  assert.deepEqual([...header.matchAll(/<button id="([^"]+)"/g)].map(m=>m[1]),
+    ['mode-dark','mode-light','mode-invert','savedToggle']);
+  const {get,context}=await mountStudio();
+  for(const [mode,label] of [['dark','Dark'],['light','Light'],['invert','High contrast']]){
+    const markup=header.match(new RegExp('<button id="mode-'+mode+'"([^>]*)>(.*?)</button>')) ;
+    for(const attr of ['aria-label','title'])assert.ok(markup[1].includes(attr+'="'+label+' theme"'));
+    assert.match(markup[2],/^<svg width="16" height="16"[^>]*aria-hidden="true"/);
+    assert.equal(markup[2].replace(/<[^>]+>/g,''),'');
+    get('mode-'+mode).onclick();
+    assert.equal(context.document.documentElement.dataset.theme,mode);
+  }
 });

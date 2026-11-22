@@ -146,3 +146,31 @@ def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch):
     status,_=request('/api/saved-game',dict(game=game,path=saved['config_path']),'DELETE')
     assert status==200 and not directory.exists()
     assert (tmp_path/data['path'][1:]).is_file()
+
+
+def test_import_loads_repository_env_before_client_configuration(tmp_path, monkeypatch):
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    studio = tmp_path/'project/studio'
+    studio.mkdir(parents=True)
+    shutil.copy(server.__file__, studio/'server.py')
+    (studio.parent/'.env').write_text(
+        ' export LLM_BASE_URL = "http://localhost:4321/v1"\n'
+        "LLM_API_KEY='test key #1'\nLLM_MODEL = auto\n"
+        'IMAGE_MODEL = test-image\nPIXELLAB_API_KEY=pixel-test\n'
+    )
+    for key in ('LLM_BASE_URL','LLM_API_KEY','LLM_MODEL','IMAGE_MODEL','PIXELLAB_API_KEY'):
+        monkeypatch.delenv(key, raising=False)
+    script = """
+import runpy, sys
+module = runpy.run_path(sys.argv[1])
+from generator.image_client import ImageClient
+llm = module['LLMClient']()
+assert (llm.base,llm.key,llm.model)==('http://localhost:4321/v1','test key #1','auto')
+assert (ImageClient().model,ImageClient().pixel_key)==('test-image','pixel-test')
+"""
+    subprocess.run([sys.executable,'-c',script,str(studio/'server.py')], cwd=tmp_path,
+                   env=dict(os.environ, PYTHONPATH=str(server.ROOT)), check=True)

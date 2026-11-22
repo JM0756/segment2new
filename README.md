@@ -30,7 +30,7 @@ python3 studio/server.py
 
 Open http://localhost:8000/ and choose an archetype under Explore games. Complete its tutorial to unlock Level 1 and the floating AI remix control. Pass each round with at least 80% accuracy and select **Next Level →** to advance through Level 3. The browser remembers unlocks per archetype. Studio keeps generated and remixed runs in a temporary workspace until you choose **Save Game**. The saved drawer can reopen or delete a game and its artwork. Built-in activities work offline.
 
-Studio reads a repository-root `.env` at startup and gives exported shell variables precedence. Click the gateway status pill to update the base URL or key for the current server session. A “key required” status means the gateway responded to the models probe. A blank key preserves the current key when the gateway origin stays the same.
+Studio reads a repository-root `.env` at startup and gives exported shell variables precedence.
 
 ## Generate
 
@@ -60,7 +60,7 @@ export IMAGE_MODEL="auto"
 python generator/generate.py --archetype Feature-Classifier --topic "Overfitting" --theme "Deep space" --generate-sprites --regenerate-level 2
 ```
 
-Set `PIXELLAB_API_KEY` in the repository-root `.env` or your shell to use PixelLab Pixflux. Both the CLI and Studio read this file and preserve existing shell settings. You can also enter a PixelLab key in Studio’s gateway settings for that server session. `PIXELLAB_BASE_URL` defaults to `https://api.pixellab.ai/v1`. Characters request native transparency at 128×128; the arena requests a 320×180 scene. [PixelLab v1 API](https://api.pixellab.ai/v1/docs)
+Set `PIXELLAB_API_KEY` in the repository-root `.env` or your shell to use PixelLab Pixflux. Both the CLI and Studio read this file and preserve existing shell settings. Restart Studio after editing the file. `PIXELLAB_BASE_URL` defaults to `https://api.pixellab.ai/v1`. Characters request native transparency at 128×128; the arena requests a 320×180 scene. [PixelLab v1 API](https://api.pixellab.ai/v1/docs)
 
 An unset or empty PixelLab key selects the OpenAI-compatible `/images/generations` endpoint and Pillow character cleanup. `IMAGE_MODEL` defaults to `auto`. Set `IMAGE_BASE_URL` or `IMAGE_API_KEY` to override the text gateway URL or key for diffusion. Without the flag, the generator makes only text requests.
 
