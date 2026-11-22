@@ -128,6 +128,9 @@
     "theme": {
       "type": "object",
       "properties": {
+        "subtitle": {
+          "type": "string"
+        },
         "title": {
           "type": "string",
           "minLength": 1

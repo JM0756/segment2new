@@ -31,7 +31,7 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         features, pool, bias, tests = CLASSIFIER[level]
         knobs = f"Use {features} features, pool size within {pool}, bias within {bias}, and {tests} curveballs."
     inputs = {"topic": topic, "theme": theme, "level": f"level_{level}",
-              "constraints": [TIERS[level], knobs]}
+              "constraints": [TIERS[level], knobs, "Give this game a themed title and short subtitle shared by all tiers."]}
     if generate_sprites:
         inputs["constraints"].append(
             "In theme.sprites, supply class0_prompt and class1_prompt for the first two "

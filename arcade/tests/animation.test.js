@@ -49,3 +49,26 @@ test('a four-frame sheet uses square source rects at eight FPS and wraps',()=>{
   hud.drawEntitySprite(ctx,{naturalWidth:128,naturalHeight:128},{},32,500);
   assert.equal(draws.at(-1).length,5);
 });
+
+test('incoming actors walk from the entry threshold to the scanner',()=>{
+  for(const [age,y,walking] of [[0,24,true],[325,37,true],[650,50,false],[900,50,false]]){
+    assert.deepEqual(hud.enterFromDoor(age,50,24,50,50),{x:50,y,walking});
+  }
+});
+
+test('active actors and cohort members are drawn together in ground-contact order',()=>{
+  const drawn=[];
+  const entries=[[60,'anchor'],[69,'settled'],[35,'incoming'],[54,'walking']];
+  hud.paintByDepth(entries.map(([footY,id])=>({footY,draw:()=>drawn.push(id)})));
+  assert.deepEqual(drawn,['incoming','walking','anchor','settled']);
+});
+
+test('inspection pulses decay and only the receiving class gate opens on arrival',()=>{
+  const cohort=hud.createCohort();
+  cohort.add({slot:0},1,true,100);
+  const state=now=>hud.structureActivity(now,100,cohort.frame(now,2).actors,2);
+  assert.deepEqual(state(100),{scan:1,gates:[0,0]});
+  assert.ok(state(375).scan>0 && state(375).scan<1);
+  assert.deepEqual(state(480).gates,[0,1]);
+  assert.deepEqual(state(1000),{scan:0,gates:[0,0]});
+});

@@ -1,5 +1,21 @@
 // Actor transforms are shared by diffusion art and the procedural characters.
 const ArcadeHUD = {
+  enterFromDoor(age,doorX,doorY,targetX,targetY){
+    const t=Math.max(0,Math.min(1,age/650)),ease=t*t*(3-2*t);
+    return {x:doorX+(targetX-doorX)*ease,y:doorY+(targetY-doorY)*ease,walking:t<1};
+  },
+  structureActivity(now,scanTime,members,lanes){
+    const gates=Array(lanes).fill(0);
+    for(const member of members){
+      const light=Math.max(0,1-Math.abs(member.age-380)/300);
+      gates[member.side]=Math.max(gates[member.side],light);
+    }
+    return {scan:Math.min(1,Math.max(0,1-(now-scanTime)/600)),gates};
+  },
+  paintByDepth(entries){
+    entries.sort((a,b)=>a.footY-b.footY);
+    for(const entry of entries)entry.draw();
+  },
   drawAvatarIcon(target,image,spec,size){
     ArcadeEnvironment.drawAvatarIcon(target,image,spec,size);
   },

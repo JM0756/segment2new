@@ -104,7 +104,7 @@ def validate(source, archetype, config, level):
     return None
 
 
-def attach_sprites(config, previous, source, archetype, level, directory, stem, animated_sprites=None):
+def attach_sprites(config, previous, source, archetype, level, directory, stem, animated_sprites=None, providers=None):
     theme = config["theme"]
     prompts = theme.pop("sprites", {})
     previous_theme = previous["theme"] if previous else {}
@@ -132,17 +132,24 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
             print(f"Generating Level {level} sprite {slot}", flush=True)
             sprites[prompt] = prompts[prompt]
             art_stem = f"{stem}_L{level}" if previous else stem
-            sprites[asset] = client.generate(prompts[prompt], directory, art_stem, slot)
+            try:
+                sprites[asset] = client.generate(prompts[prompt], directory, art_stem, slot)
+            except ImageGenerationError as exc:
+                warnings.append(f"{slot} image failed. Using a procedural character. {exc}")
+                continue
             created.append(directory / sprites[asset])
             if animated_sprites and client.pixel_key:
                 try:
                     sprites[asset] = client.animate(directory, sprites[asset], prompts[prompt])
+                    client.providers[slot+"Animation"] = "pixellab"
                     created.append(directory / sprites[asset])
                 except ImageGenerationError as exc:
                     warnings.append(f"{slot} animation unavailable. Using static sprite. {exc}")
-        theme["sprites"] = sprites
-        for i in (0,1):
-            theme[f"class{i}Sprite"] = sprites[f"class{i}_asset"]
+        if any(slot+"_asset" in sprites for slot in ("class0", "class1")):
+            theme["sprites"] = sprites
+            for slot in ("class0", "class1"):
+                if slot+"_asset" in sprites:
+                    theme[slot+"Sprite"] = sprites[slot+"_asset"]
         env = theme["environment"]
         description = (f"16-bit top-down 2D pixel art game arena background of {env['setting_name']}, "
                        f"{env['layout']} architecture, {env['floor_style']} floor, {', '.join(env['props'])}, "
@@ -165,6 +172,8 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
         for path in created:
             path.unlink(missing_ok=True)
         raise
+    if providers is not None:
+        providers.update(client.providers)
     return " ".join(warnings) or None
 
 
@@ -221,10 +230,10 @@ def tier_base(source, level, previous, used_layouts):
                 room["props"] = list(prior["environment"]["props"])
             break
     room = dict(room, setting_name=f"{prior['environment']['setting_name']} · {room['layout'].replace('-', ' ')}")
-    for key in ("setting", "tutorial", "practice", "hint", "axes", "sources", "classLabels"):
+    for key in ("subtitle", "setting", "tutorial", "practice", "hint", "axes", "sources", "classLabels"):
         if key in prior:
             theme[key] = copy.deepcopy(prior[key])
-    theme.update(title=f"{prior['title']} · Level {level}", environment=room)
+    theme.update(title=prior["title"], environment=room)
     if "options" in prior:
         size = len(theme["options"])
         theme["options"] = (prior["options"] + theme["options"][len(prior["options"]):])[:size]
@@ -270,7 +279,7 @@ def unpack_levels(response, level):
 
 
 def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False,
-             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None, animated_sprites=None, bundle=None):
+             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None, animated_sprites=None, bundle=None, inherited_providers=None):
     generate_sprites = generate_sprites or animated_sprites is True
     started = monotonic()
     source = GAMES / archetype / "source"
@@ -281,6 +290,9 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     action = "Regenerating" if previous else "Generating"
     print(f"{action} Level {level} for {archetype}", flush=True)
     previous_config = json.loads(previous.read_text()) if previous else None
+    if previous and previous.with_suffix(".meta.json").is_file():
+        inherited_providers = json.loads(previous.with_suffix(".meta.json").read_text()).get("asset_providers")
+    providers = dict(inherited_providers or {})
     sprite_error = None
     prior_tier = int(previous.stem[-1]) if previous and re.search(r"_L[123]$",previous.stem) else 1
     messages = build_messages(source, archetype, topic, instruction if revision is not None else theme, level,
@@ -352,6 +364,9 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     fallback_reason = "Derived from the accepted level using the local tier template."
                     config = base
                 elif isinstance(entry, dict) and set(entry) == {"theme"} and isinstance(entry["theme"], dict):
+                    if not previous and not revision:
+                        base["theme"]["title"] = theme.strip() or base["theme"]["title"]
+                        base["theme"]["subtitle"] = topic.strip()
                     for field, value in entry["theme"].items():
                         if isinstance(value, dict) and isinstance(base["theme"].get(field), dict):
                             base["theme"][field].update(value)
@@ -366,6 +381,13 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
         except ValueError as exc:
             category, error = "json_parse_error", str(exc)
         else:
+            if previous_config and isinstance(config, dict) and isinstance(config.get("theme"), dict):
+                identity = previous_config["theme"]
+                config["theme"]["title"] = identity["title"]
+                if "subtitle" in identity:
+                    config["theme"]["subtitle"] = identity["subtitle"]
+                else:
+                    config["theme"].pop("subtitle", None)
             if archetype == "Feature-Classifier":
                 try:
                     if label_source:
@@ -398,7 +420,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     if progress:
                         progress(f"Level {level} · generating character sprites")
                     try:
-                        sprite_error = attach_sprites(config, previous_config, source, archetype, level, output.parent, stem, animated_sprites)
+                        sprite_error = attach_sprites(config, previous_config, source, archetype, level, output.parent, stem, animated_sprites, providers)
                     except ImageGenerationError as exc:
                         sprite_error = str(exc)
                     if sprite_error:
@@ -417,6 +439,10 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                             config["theme"][f"class{i}Sprite"] = asset
                 else:
                     config["theme"].pop("sprites", None)
+                for slot, field in (("class0","class0Sprite"), ("class1","class1Sprite"), ("backgroundSprite","backgroundSprite")):
+                    if not config["theme"].get(field):
+                        providers[slot] = "procedural"
+                meta["asset_providers"] = providers
                 if previous:
                     meta[f"source_level{prior_tier}_file"] = str(previous.relative_to(root))
                 for path, data in [(output.with_suffix(".meta.json"), meta), (output, config)]:
@@ -431,6 +457,8 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     record = dict(common, run_id=run_id, is_regeneration=previous is not None, attempts=attempt,
                   passed=output is not None, first_pass_success=output is not None and attempt == 1,
                   failure_categories=failures, latency_ms=round((monotonic()-started)*1000))
+    if output:
+        record["asset_providers"] = providers
     if sprite_error is not None:
         record["sprite_error"] = sprite_error
     if api_errors:

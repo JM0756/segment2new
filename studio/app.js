@@ -85,7 +85,7 @@ function resultCard(item,file,where,summary){
   if(summary){const text=document.createElement('p');text.className='summary';text.textContent=summary;where.append(text);}
   const card=document.createElement('section');card.className='result result-card';card.tabIndex=-1;card.setAttribute('aria-label',item.title);
   const body=document.createElement('div');body.className='card-body';
-  for(const [tag,text] of [['span',category],['h3',item.title],['p',lesson]]){
+  for(const [tag,text] of [['span',category],['h3',item.title],['p',item.subtitle||lesson]]){
     const el=document.createElement(tag);el.textContent=text;if(tag==='span')el.className='category';body.append(el);
   }
   const open=button('Play this version',mount);body.append(open);
@@ -241,7 +241,7 @@ async function send(e){
     const catalogItem=items.find(i=>Object.values(i.levels).includes(result.config_path));
     const theme=result.config.theme;
     const tier=Number(result.config_path.match(/_L([123])\.json$/)?.[1]||1);
-    const item={...catalogItem, game, title:theme.title||catalogItem?.title,
+    const item={...catalogItem, game, title:theme.title||catalogItem?.title, subtitle:theme.subtitle,
       levels:result.levels||catalogItem?.levels||{[tier]:result.config_path}, environment:theme.environment,
       config:result.config, thumbnail:theme.class0Sprite||theme.sprites?.class0_asset};
     resultCard(item,result.config_path,reply,result.summary||result.config.theme.setting);

@@ -25,7 +25,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       const elements=new Map();
       const imageURLs=[], drawings=[];
       const drawing = {
-        roundRect(){},setTransform(){},save(){},restore(){},strokeRect(){},strokeText(){},rotate(){},scale(){},stroke(){},moveTo(){},lineTo(){},translate(){},ellipse(){},fillText(){},
+        createLinearGradient(){return {addColorStop(){}};},roundRect(){},setTransform(){},save(){},restore(){},strokeRect(){},strokeText(){},rotate(){},scale(){},stroke(){},moveTo(){},lineTo(){},translate(){},ellipse(){},fillText(){},
         measureText(text){return {width:text.length*5};},
         beginPath(){}, arc(){drawings.push('circle');}, fill(){},
         fillRect(){drawings.push(this.fillStyle);},

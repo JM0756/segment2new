@@ -125,7 +125,7 @@ def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch,an
         path=(directory/asset).with_stem((directory/asset).stem+'_anim')
         Image.new('RGBA',(512,128),'green').save(path)
         return path.relative_to(directory).as_posix()
-    image_client=Mock(pixel_key='test',generate=draw,animate=Mock(side_effect=animate))
+    image_client=Mock(pixel_key='test',providers={},generate=draw,animate=Mock(side_effect=animate))
     monkeypatch.setattr(generator,'ImageClient',lambda:image_client)
     def request(endpoint,data,method='POST'):
         handler = object.__new__(server.Handler)

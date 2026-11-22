@@ -139,7 +139,7 @@ def _catalog(include_versions=False):
                         field = f'class{index}Sprite'
                         asset = theme.get(field) or theme.get('sprites', {}).get(f'class{index}_asset')
                         item[field] = urljoin(public(path), asset) if asset else None
-                    item.update(title=theme['title'], setting=theme.get('setting'), name=theme.get('name'), accent=theme.get('accent'),
+                    item.update(title=theme['title'], subtitle=theme.get('subtitle'), setting=theme.get('setting'), name=theme.get('name'), accent=theme.get('accent'),
                                 thumbnail=item['class0Sprite'],
                                 environment=theme.get('environment'), palette=theme.get('palette'),
                                 backgroundSprite=urljoin(public(path), theme['backgroundSprite'])
@@ -312,6 +312,9 @@ def operation(endpoint, data):
             options['generate_sprites'] = bool(animated or data.get('sprites',bool(list(artwork(original)))))
             if not options['generate_sprites']:
                 copy_art(original,candidate,directory)
+                metadata = candidate.with_suffix('.meta.json')
+                if metadata.is_file():
+                    options['inherited_providers'] = json.loads(metadata.read_text()).get('asset_providers')
             path = generate(client,game,topic,setting,level,revision=original,instruction=data['message'],**options)
         # Keep character identities while generating a new arena per tier.
         warnings = []
@@ -361,6 +364,7 @@ def gateway_status():
         status = None
     return dict(model=client.model, base_url=client.base, online=status is not None,
                 http_status=status, auth_required=status in (401,403),
+                retrodiffusion_configured=bool(os.getenv("RETRODIFFUSION_API_KEY")),
                 pixellab_configured=bool(os.getenv("PIXELLAB_API_KEY", "").strip()))
 
 

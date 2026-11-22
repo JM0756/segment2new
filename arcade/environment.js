@@ -268,6 +268,64 @@ const ArcadeEnvironment = (() => {
       .forEach((id,i)=>prop(ctx,id,22+(i%2)*276,46+Math.floor(i/2)*32,accent));
     ctx.restore();
   }
+  function structureStyle(theme){
+    const layout=layoutFor(theme);
+    if(['forest-edge','misty-hollow','ancient-ruins'].includes(layout))return 'grove';
+    if(['speakeasy','party'].includes(layout))return 'velvet';
+    if(['space-station','reactor-core','observation-deck','laboratory','clinical'].includes(layout))return 'hatch';
+    return 'street';
+  }
+  function gate(ctx,x,y,style,accent,open,scale){
+    ctx.save();ctx.translate(x,y);ctx.scale(scale,scale);
+    const r=(color,x,y,w,h)=>rect(ctx,color,x,y,w,h);
+    const frame={grove:'#788375',velvet:'#aa804c',hatch:'#8596a5',street:'#8a7668'}[style];
+    oval(ctx,'#09111e66',0,2,31,6);
+    r('#17202a',-26,-39,52,41);r(frame,-26,-39,5,40);r(frame,21,-39,5,40);
+    r(frame,-23,-43,46,7);
+    const panel=19-15*open;
+    const face={grove:'#495747',velvet:'#912e49',hatch:'#495e73',street:'#564840'}[style];
+    r(face,-20,-35,panel,34);r(face,20-panel,-35,panel,34);
+    if(style==='grove'){
+      for(let i=0;i<5;i++)r('#98a18b',-24+i*10,-42-Math.min(i,4-i)*2,9,7);
+      r('#526b49',-24,-39,3,23);r('#7a9568',-20,-35,6,4);
+    }else if(style==='velvet'){
+      for(let i=0;i<3;i++){r('#c45a66',-20+i*panel/3,-35,2,22-i*3);r('#bc4e61',18-i*panel/3,-35,2,22-i*3);}
+      r('#72334a',-21,-40,42,6);r('#e7b963',-24,-12,5,3);r('#e7b963',19,-12,5,3);
+    }else if(style==='hatch'){
+      for(const dx of [-25,21])for(let i=0;i<3;i++)r('#d4a75b',dx,-9+i*4,4,2);
+      r('#263746',-13,-41,26,4);
+    }else{
+      r('#30343a',-29,-43,58,4);r('#c1a784',-20,-31,2,25);r('#c1a784',18,-31,2,25);
+    }
+    r(open>.15?accent:'#526269',-8,-40,16,3);
+    r('#28333b',-26,0,52,3);r(accent,-19,1,38,1);
+    ctx.restore();
+  }
+  function checkpoint(ctx,x,y,style,accent,scan,now){
+    ctx.save();ctx.translate(x,y);
+    oval(ctx,'#111a236b',0,3,31,9);oval(ctx,'#28323a',0,0,29,8);
+    ctx.strokeStyle=accent;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.ellipse(0,-1,24,6,0,0,Math.PI*2);ctx.stroke();
+    if(style==='grove'){
+      for(let i=0;i<6;i++)rect(ctx,accent,Math.cos(i*Math.PI/3)*23-1,Math.sin(i*Math.PI/3)*6-2,3,3);
+    }else{
+      prop(ctx,style==='velvet'?'brass_rail':style==='street'?'desk_lamps':'consoles',-34,-4,accent);
+    }
+    if(scan>0){
+      ctx.globalAlpha=scan*.8;ctx.fillStyle=accent;
+      ctx.fillRect(-20,-6-26*(.5+.5*Math.cos(now/80)),40,2);
+      oval(ctx,accent,0,-1,24,5);
+    }
+    ctx.restore();
+  }
+  function foreground(ctx,w,h,style,accent){
+    const props={grove:['trees','rubble','trees'],velvet:['velvet_booths','brass_rail','red_cups'],
+      hatch:['consoles','barriers','consoles'],street:['barrels','crates','rubble']}[style];
+    for(const [i,[x,y]] of [[.025,.80],[.15,.995],[.98,.90]].entries()){
+      ctx.save();ctx.translate(w*x,h*y);ctx.scale(1.8,1.8);
+      oval(ctx,'#0b111a66',1,7,16,4);prop(ctx,props[i],0,0,accent);ctx.restore();
+    }
+  }
   function blit(ctx,image,...bounds){
     ctx.imageSmoothingEnabled=false;
     try{ctx.drawImage(image,...bounds);}finally{ctx.imageSmoothingEnabled=true;}
@@ -278,6 +336,6 @@ const ArcadeEnvironment = (() => {
     blit(ctx,image,(w-dw)/2,(h-dh)/2,dw,dh);
     rect(ctx,'#09132130',0,0,w,h);
   }
-  return {drawArenaBackground,layoutFor,drawAvatarIcon,backdrop,blit};
+  return {structureStyle,gate,checkpoint,foreground,drawArenaBackground,layoutFor,drawAvatarIcon,backdrop,blit};
 })();
 if(typeof module!=='undefined')module.exports=ArcadeEnvironment;

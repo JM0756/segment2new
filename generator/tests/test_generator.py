@@ -22,6 +22,8 @@ from generator.metrics import summarize
 @pytest.fixture(autouse=True)
 def isolated_image_provider(monkeypatch):
     monkeypatch.delenv("ENABLE_ANIMATED_SPRITES", raising=False)
+    monkeypatch.setenv("RETRODIFFUSION_API_KEY", "")
+    monkeypatch.setenv("IMAGE_PROVIDER", "auto")
     monkeypatch.setenv("PIXELLAB_API_KEY", "")
 
 
@@ -162,14 +164,15 @@ def test_bundle_timeout_still_builds_three_valid_tiers(tmp_path, monkeypatch, ga
 
 def test_partial_bundle_uses_one_completion(tmp_path):
     client = Mock(model="test")
-    client.complete.return_value = '{"level1":{"theme":{"title":"Forest detective"}},"level2":{"theme":{"title":"Forest echoes"}},"level3":'
+    client.complete.return_value = '{"level1":{"theme":{"title":"Forest detective"}},"level2":{"theme":{"title":"Forest echoes","hint":"Read the echoes"}},"level3":'
     opts = dict(bundle={}, root=tmp_path, log=tmp_path/"log", raise_on_failure=True)
     args = client,"Feature-Classifier","Science","Forest"
     first = generate(*args,1,**opts)
     for n in (2,3):
         path = generate(*args,n,previous=first,**opts)
         if n == 2:
-            assert json.loads(path.read_text())["theme"]["title"] == "Forest echoes"
+            theme = json.loads(path.read_text())["theme"]
+            assert theme["title"] == "Forest detective" and theme["hint"] == "Read the echoes"
     assert json.loads(first.read_text())["theme"]["title"] == "Forest detective"
     client.complete.assert_called_once()
 
@@ -201,7 +204,7 @@ def test_image_endpoint(tmp_path, monkeypatch, via_url):
     assert request.full_url == "http://localhost:3001/v1/images/generations"
     assert request.get_header("Authorization") == "Bearer test-key"
     assert request.get_header("User-agent") == "ur2phd-generator/1.0"
-    assert json.loads(request.data) == dict(model="auto", prompt="friendly alien", size="512x512",
+    assert json.loads(request.data) == dict(model="@cf/black-forest-labs/flux-1-schnell", prompt="16-bit top-down RPG pixel art, crisp pixel grid, flat shading, no anti-aliasing. friendly alien", size="512x512",
                                             n=1, response_format="b64_json")
     if via_url:
         assert send.call_args.args[0] == url
@@ -218,7 +221,7 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
     monkeypatch.setattr(cli, "LLMClient", lambda: text)
     ok = {"b64_json": base64.b64encode(PNG).decode()}
     error = HTTPError("http://localhost:3001", 500, "Unavailable", {}, BytesIO(b"provider busy"))
-    responses = [image_response(ok), error] if failure else [image_response(ok) for _ in range(4)]
+    responses = [image_response(ok), error, image_response(ok)] if failure else [image_response(ok) for _ in range(4)]
     send = Mock(side_effect=responses)
     monkeypatch.setattr("generator.image_client.urlopen", send)
     log = tmp_path / "runs.jsonl"
@@ -230,11 +233,11 @@ def test_sprite_cli_pair(tmp_path, monkeypatch, failure, capsys):
     directory = tmp_path / "generated/Search-Desk"
     first_path, = directory.glob("*_L1.json")
     theme = json.loads(first_path.read_text())["theme"]
-    assert send.call_count == (2 if failure else 4)
+    assert send.call_count == (3 if failure else 4)
     assert "class0_prompt" in str(json.loads(text.complete.call_args.args[0][1]["content"])["constraints"])
     if failure:
-        assert "sprites" not in theme
-        assert not list(directory.glob("assets/*.png"))
+        assert "class0Sprite" in theme and "class1Sprite" not in theme
+        assert (directory/theme["backgroundSprite"]).is_file()
         assert "provider busy" in capsys.readouterr().err
         for path in [first_path.with_suffix(".meta.json"), log]:
             assert "provider busy" in json.loads(path.read_text())["sprite_error"]
@@ -430,7 +433,7 @@ def test_llm_cannot_supply_unowned_background_path(tmp_path):
 def test_background_failure_retains_characters_and_procedural_scene(tmp_path, monkeypatch):
     config = default("Alert-Dial")
     config["theme"]["sprites"] = dict(class0_prompt="crew", class1_prompt="android")
-    client = Mock()
+    client = Mock(providers={})
     client.generate.side_effect = ["assets/a.png", "assets/b.png", ImageGenerationError("busy")]
     monkeypatch.setattr(cli, "ImageClient", lambda: client)
     warning = cli.attach_sprites(config, None, ARCADE/"Alert-Dial/source", "Alert-Dial", 1, tmp_path, "test")
@@ -458,7 +461,7 @@ def test_cleanup_keys_dominant_border_and_enclosed_neutral_pocket(background):
 def test_generate_class_sprites_for_arena_games(tmp_path, monkeypatch, game):
     text = Mock(model="mock")
     text.complete.return_value = json.dumps(default(game))
-    images = Mock()
+    images = Mock(providers={})
     images.generate.side_effect = lambda _, directory, stem, slot: f"assets/{slot}.png"
     monkeypatch.setattr(cli, "ImageClient", lambda: images)
     path = generate(text, game, "Activity", "Archive", 1, root=tmp_path, log=tmp_path/"log",
@@ -609,3 +612,111 @@ def test_incomplete_animation_keeps_static_reference(tmp_path, monkeypatch):
     with pytest.raises(ImageGenerationError, match="four frames"):
         ImageClient().animate(tmp_path, path.name, "Character")
     assert path.read_bytes() == PNG and not (tmp_path/"class0_anim.png").exists()
+
+
+@pytest.mark.parametrize("slot,size,style", [
+    ("class0", (128,128), "rd_fast__game_asset"),
+    ("backgroundSprite", (384,216), "rd_fast__environment"),
+])
+@pytest.mark.parametrize("field", ["base64_images", "images", "data"])
+def test_retro_first_and_png_dimensions(tmp_path, monkeypatch, slot, size, style, field):
+    monkeypatch.setenv("RETRODIFFUSION_API_KEY", "retro-test")
+    monkeypatch.setenv("PIXELLAB_API_KEY", "pixel-test")
+    encoded = base64.b64encode(PNG).decode()
+    item = {"b64_json":encoded} if field == "data" else encoded
+    send = Mock(return_value=BytesIO(json.dumps({field:[item]}).encode()))
+    monkeypatch.setattr("generator.image_client.urlopen", send)
+    client = ImageClient()
+    asset = client.generate("Forest scout",tmp_path,"forest",slot)
+    send.assert_called_once()
+    request = send.call_args.args[0]
+    assert request.full_url == "https://api.retrodiffusion.ai/v1/inferences"
+    assert request.get_header("X-rd-token") == "retro-test"
+    assert request.get_header("Authorization") is None
+    payload = json.loads(request.data)
+    assert (payload["width"],payload["height"]) == size
+    assert payload["prompt_style"] == style and payload["num_images"] == 1
+    assert payload["remove_bg"] is (slot != "backgroundSprite")
+    with Image.open(tmp_path/asset) as image:
+        assert image.format == "PNG" and image.size == size
+    assert client.providers[slot] == "retrodiffusion"
+
+
+@pytest.mark.parametrize("failure", [402,429,"timeout","malformed"])
+def test_retro_failure_falls_through_to_pixellab(tmp_path, monkeypatch, failure, caplog):
+    monkeypatch.setenv("RETRODIFFUSION_API_KEY","retro-test")
+    monkeypatch.setenv("PIXELLAB_API_KEY","pixel-test")
+    if isinstance(failure,int):
+        failed = HTTPError("retro",failure,"busy",{},BytesIO(b"unavailable"))
+    else:
+        failed = TimeoutError("timeout") if failure=="timeout" else BytesIO(b'{"images":[]}')
+    encoded=base64.b64encode(PNG).decode()
+    send=Mock(side_effect=[failed,BytesIO(json.dumps({"image":{"base64":encoded}}).encode())])
+    monkeypatch.setattr("generator.image_client.urlopen",send)
+    client=ImageClient()
+    assert client.generate("scout",tmp_path,"run","class1").endswith("_class1.png")
+    retry=send.call_args.args[0]
+    assert retry.full_url.endswith("/generate-image-pixflux") and retry.get_header("X-rd-token") is None
+    assert client.providers["class1"]=="pixellab" and "retrodiffusion" in caplog.text
+
+
+@pytest.mark.parametrize("gateway_fails", [False,True])
+def test_all_assets_follow_waterfall_and_log_sources(tmp_path,monkeypatch,gateway_fails):
+    monkeypatch.setenv("RETRODIFFUSION_API_KEY","retro-test")
+    monkeypatch.setenv("PIXELLAB_API_KEY","pixel-test")
+    monkeypatch.setenv("IMAGE_API_KEY","image-test")
+    def respond(request,timeout):
+        if request.full_url.endswith("/images/generations") and not gateway_fails:
+            assert request.get_header("Authorization")=="Bearer image-test"
+            assert request.get_header("X-rd-token") is None
+            return image_response({"b64_json":base64.b64encode(PNG).decode()})
+        raise HTTPError(request.full_url,402,"no credits",{},BytesIO(b""))
+    send=Mock(side_effect=respond)
+    monkeypatch.setattr("generator.image_client.urlopen",send)
+    text=Mock(model="test")
+    text.complete.return_value=json.dumps(default("Feature-Classifier"))
+    path=generate(text,"Feature-Classifier","Features","Forest",1,root=tmp_path,log=tmp_path/"log",generate_sprites=True)
+    assert send.call_count==9 and path.is_file()
+    expected=dict.fromkeys(("class0","class1","backgroundSprite"),"procedural" if gateway_fails else "cloudflare")
+    for file in (path.with_suffix(".meta.json"),tmp_path/"log"):
+        assert json.loads(file.read_text())["asset_providers"]==expected
+    theme=json.loads(path.read_text())["theme"]
+    assert bool(theme.get("class0Sprite")) is not gateway_fails
+    assert bool(theme.get("backgroundSprite")) is not gateway_fails
+
+
+def test_theme_identity_survives_template_and_missing_final_tier(tmp_path):
+    client=Mock(model="test")
+    identity={"title":"Moon Garden","subtitle":"Read the lunar blooms"}
+    client.complete.return_value=json.dumps({"level1":{"theme":identity},
+        "level2":{"theme":{"title":"Orbital Station","subtitle":"Hull integrity"}}})
+    opts=dict(root=tmp_path,log=tmp_path/"log",bundle={},raise_on_failure=True)
+    args=client,"Feature-Classifier","Classification","Forest"
+    first=generate(*args,1,**opts)
+    for tier in (2,3):
+        path=generate(*args,tier,previous=first,**opts)
+        theme=json.loads(path.read_text())["theme"]
+        assert all(theme[key]==value for key,value in identity.items())
+    client.complete.assert_called_once()
+
+
+def test_explicit_cloudflare_skips_paid_providers_and_reuses_character_provenance(tmp_path,monkeypatch):
+    monkeypatch.setenv("RETRODIFFUSION_API_KEY","retro")
+    monkeypatch.setenv("PIXELLAB_API_KEY","pixel")
+    monkeypatch.setenv("IMAGE_PROVIDER","cloudflare")
+    send=Mock(side_effect=lambda *_args,**_kwargs:image_response({"b64_json":base64.b64encode(PNG).decode()}))
+    monkeypatch.setattr("generator.image_client.urlopen",send)
+    text=Mock(model="test")
+    text.complete.return_value=json.dumps({"level1":{"theme":{"title":"Orchard"}}})
+    args=text,"Feature-Classifier","Features","Orchard"
+    opts=dict(bundle={},root=tmp_path,log=tmp_path/"log",generate_sprites=True,raise_on_failure=True)
+    first=generate(*args,1,**opts)
+    paths=[first]+[generate(*args,tier,previous=first,**opts) for tier in (2,3)]
+    assert send.call_count==5
+    assert all(call.args[0].full_url.endswith("/images/generations") for call in send.call_args_list)
+    for path in paths:
+        providers=json.loads(path.with_suffix(".meta.json").read_text())["asset_providers"]
+        assert providers==dict.fromkeys(("class0","class1","backgroundSprite"),"cloudflare")
+    themes=[json.loads(path.read_text())["theme"] for path in paths]
+    assert len({theme["class0Sprite"] for theme in themes})==1
+    assert len({theme["backgroundSprite"] for theme in themes})==3

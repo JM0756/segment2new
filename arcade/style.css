@@ -3,7 +3,7 @@
 button:hover:enabled,button:focus-visible,button[aria-pressed=true]{outline:2px solid #ffd47a}button:disabled{opacity:.6}[hidden]{display:none!important}
 .arena-stage{position:relative;width:100vw;height:100vh;height:100dvh;overflow:hidden}#arena{position:absolute;inset:0;width:100%;height:100%;display:block}
 .telemetry,.task,.keycaps,#callout,#guide{position:absolute}.telemetry,.task,#callout{border-radius:6px;background:#102132eb;padding:6px 10px}
-.telemetry{top:8px;left:8px;max-width:46%;font-size:12px}.telemetry strong,.task strong{display:block}.scores{display:flex;gap:10px}.scores b:first-child{color:#96f3dc}.scores b:last-child{color:#ffd49e}
+.telemetry{top:8px;left:8px;max-width:46%;font-size:12px}.telemetry strong,.task strong{display:block}#subtitle{display:block}.scores{display:flex;gap:10px}.scores b:first-child{color:#96f3dc}.scores b:last-child{color:#ffd49e}
 #meter{height:5px;margin-top:3px;background:linear-gradient(to right,#ffd47a var(--value),#475e70 var(--value))}
 .task{right:8px;top:8px;max-width:48%;max-height:28vh;overflow:auto;font-size:12px}.task span{display:block}.task:empty,#callout:empty{display:none}#sources{display:flex;gap:3px;flex-wrap:wrap}#slider{vertical-align:middle;width:min(150px,23vw)}
 .arena-stage{

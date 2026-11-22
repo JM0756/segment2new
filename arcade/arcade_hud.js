@@ -10,6 +10,7 @@ if(continuing){
 const tutorialMode=params.get('mode')==='tutorial';
 let reported=false, passed=false, guideStep=-1, lines=[], practiceActors=[];
 let cohort=ArcadeHUD.createCohort();
+let scanTime=-Infinity;
 let feedback=null, pulse=0, arrival=0, origin, hits=[];
 const canvas=$('arena'),ctx=canvas.getContext('2d');
 function emit(event,detail={}) {
@@ -18,10 +19,11 @@ function emit(event,detail={}) {
 function button(label,fn) {
   const b=document.createElement('button');b.textContent=label;b.onclick=fn;return b;
 }
-function action(fn) {
+function action(fn, inspection=false) {
   if(!round)return;
   const last=view.target;
   const outcome=fn();pulse=performance.now();
+  if(inspection || outcome?.destination!==undefined || view.field)scanTime=pulse;
   if(outcome?.destination!==undefined){
     const actor=view.actors[outcome.actor], hit=hits[outcome.actor];
     cohort.add(actor,outcome.destination,outcome.correct,pulse,(hit?.x??worldWidth/2)/worldWidth,((hit?.y??worldHeight/2)+11)/worldHeight);
@@ -86,6 +88,8 @@ function render() {
   view=round.view();
   const guided=guideStep>=0;
   $('title').textContent=config.theme.title;
+  $('subtitle').textContent=config.theme.subtitle||'';
+  $('subtitle').hidden=!config.theme.subtitle;
   $('phase').textContent=tutorialMode?'Tutorial':'Level '+tier+' · '+view.phase+(view.field?' · '+view.submit:'');
   const scoreLabels=view.teamNames||(config.archetype==='threshold'?['Hits','False alarms']:['Verified','Errors']);
   for(let i=0;i<2;i++)$('team'+i).textContent=scoreLabels[i]+' '+view.score[i];
@@ -129,7 +133,7 @@ function render() {
   $('sources').hidden=guided||!view.sources;
   if(view.sources && $('sources').childElementCount===0){
     view.sources.forEach((source,i)=>{
-      const b=button('Source '+(i+1),()=>{b.textContent=source;action(()=>round.inspect());});
+      const b=button('Source '+(i+1),()=>{b.textContent=source;action(()=>round.inspect(),true);});
       $('sources').append(b);
     });
   }
@@ -142,7 +146,7 @@ function arenaLayout(logicalWidth,logicalHeight){
   // Keep the whole five-member row and count pill inside the playable area.
   const playableWidth=Math.max(1,logicalWidth-rightMargin);
   const rightLane=Math.max(0,Math.min(logicalWidth*.72,playableWidth-46*uiScale))/logicalWidth;
-  const leftLane=Math.min(.22,rightLane/3);
+  const leftLane=Math.min(.24,rightLane/3);
   return {logicalWidth,logicalHeight,uiScale,rightMargin,rightLane,leftLane,playableWidth};
 }
 function resizeCanvas(){
@@ -163,37 +167,37 @@ function resizeCanvas(){
   ctx.setTransform(width/worldWidth,0,0,height/worldHeight,0,0);
   ctx.imageSmoothingEnabled=true;
 }
-function drawCohort(now,w,h){
-  if(!view.lanes || guideStep>=0)return;
-  const {actors,arrived}=cohort.frame(now,view.lanes.length,layout.leftLane,layout.rightLane,Math.min(16/w,(layout.rightLane-layout.leftLane)/Math.max(5,5*(view.lanes.length-1))));
-  for(const member of actors){
-    const x=member.x*w,y=member.y*h,art=member.actor.art??member.actor.slot;
-    ctx.save();ctx.translate(x-member.size/2,y-member.size);
-    ArcadeHUD.drawEntitySprite(ctx,images[art],{theme:config.theme,slot:art,facing:member.walking&&member.side===0?-1:1},member.size,now,
-      member.walking?'walk':passed?'celebrate':'idle');
-    ctx.restore();
-    const mark=member.actor.badge??member.actor.sample;
-    if(mark!==undefined){
-      ctx.save();ctx.translate(x+member.size*.21,y-member.size*.4);
-      ctx.fillStyle=mark?'#ffb883':'#fff1bc';ctx.strokeStyle='#152737';ctx.lineWidth=1.5;
-      ctx.beginPath();
-      if(mark===0)ctx.arc(0,0,member.size*.12,0,2*Math.PI);
-      else for(let k=0;k<=16;k++){
-        const radius=member.size*(k%2?.08:.16);
-        ctx[k?'lineTo':'moveTo'](Math.cos(k*Math.PI/8)*radius,Math.sin(k*Math.PI/8)*radius);
-      }
-      ctx.fill();ctx.stroke();ctx.restore();
+function drawMember(member,now,w,h){
+  const x=member.x*w,y=member.y*h,art=member.actor.art??member.actor.slot;
+  contactShadow(x,y,member.size*.31);
+  ctx.save();ctx.translate(x-member.size/2,y-member.size);
+  rimLight();
+  ArcadeHUD.drawEntitySprite(ctx,images[art],{theme:config.theme,slot:art,facing:member.walking&&member.side===0?-1:1},member.size,now,
+    member.walking?'walk':passed?'celebrate':'idle');
+  ctx.restore();
+  const mark=member.actor.badge??member.actor.sample;
+  if(mark!==undefined){
+    ctx.save();ctx.translate(x+member.size*.21,y-member.size*.4);
+    ctx.fillStyle=mark?'#ffb883':'#fff1bc';ctx.strokeStyle='#152737';ctx.lineWidth=1.5;
+    ctx.beginPath();
+    if(mark===0)ctx.arc(0,0,member.size*.12,0,2*Math.PI);
+    else for(let k=0;k<=16;k++){
+      const radius=member.size*(k%2?.08:.16);
+      ctx[k?'lineTo':'moveTo'](Math.cos(k*Math.PI/8)*radius,Math.sin(k*Math.PI/8)*radius);
     }
-    if(member.walking){
-      ctx.fillStyle='#e9dbb8a8';
-      for(let i=0;i<3;i++)ctx.fillRect(x+(member.side===0?1:-1)*(4+i*4),y+1-Math.sin(member.age/45+i)*2,2,2);
-    }else if(member.age<1050){
-      ctx.save();ctx.textAlign='center';ctx.font='bold 11px sans-serif';
-      ctx.fillStyle=member.correct?'#a3ffd3':'#ffcac1';ctx.strokeStyle='#102132';ctx.lineWidth=3;
-      const text=member.correct?'+1':'Mislabelled!',ty=y-20-(member.age-380)/60;
-      ctx.strokeText(text,x,ty);ctx.fillText(text,x,ty);ctx.restore();
-    }
+    ctx.fill();ctx.stroke();ctx.restore();
   }
+  if(member.walking){
+    ctx.fillStyle='#e9dbb8a8';
+    for(let i=0;i<3;i++)ctx.fillRect(x+(member.side===0?1:-1)*(4+i*4),y+1-Math.sin(member.age/45+i)*2,2,2);
+  }else if(member.age<1050){
+    ctx.save();ctx.textAlign='center';ctx.font='bold 11px sans-serif';
+    ctx.fillStyle=member.correct?'#a3ffd3':'#ffcac1';ctx.strokeStyle='#102132';ctx.lineWidth=3;
+    const text=member.correct?'+1':'Mislabelled!',ty=y-20-(member.age-380)/60;
+    ctx.strokeText(text,x,ty);ctx.fillText(text,x,ty);ctx.restore();
+  }
+}
+function drawCounts(arrived,w,h){
   arrived.forEach((count,i)=>{
     const x=w*ArcadeHUD.laneCenter(i,arrived.length,layout.leftLane,layout.rightLane),y=h*.76+Math.floor(Math.max(count-1,0)/5)*h*.047;
     const text='Classified: '+count;
@@ -209,6 +213,14 @@ function drawCohort(now,w,h){
     ctx.fillStyle='#fff';ctx.fillText(text,x,y+2);
   });
 }
+function contactShadow(x,y,r){
+  ctx.fillStyle='rgba(0,0,0,0.42)';
+  ctx.beginPath();ctx.ellipse(x,y,r,Math.max(2,r*.27),0,0,Math.PI*2);ctx.fill();
+}
+let style,accent;
+function rimLight(){
+  ctx.shadowColor=accent;ctx.shadowBlur=2;ctx.shadowOffsetX=-1;ctx.shadowOffsetY=-1;
+}
 function paint(now){
   requestAnimationFrame(paint);if(!round)return;
   resizeCanvas();
@@ -222,18 +234,47 @@ function paint(now){
   const playWidth=layout.playableWidth/layout.uiScale;
   const columns=Math.min(actors.length,Math.max(1,Math.floor(playWidth/85)));
   const rows=Math.ceil(actors.length/columns);
+  const doorX=w*.5, doorY=h*.24;
+  const checkpointX=Math.min(doorX,playWidth-32),checkpointY=h*.50;
+  const lanes=view.lanes?.length||2;
+  const spacing=Math.min(16/w,(layout.rightLane-layout.leftLane)/Math.max(5,5*(lanes-1)));
+  const group=cohort.frame(now,lanes,layout.leftLane,layout.rightLane,spacing);
+  const activity=ArcadeHUD.structureActivity(now,scanTime,group.actors,lanes);
+  ArcadeEnvironment.gate(ctx,doorX,doorY,style,accent,1,1);
+  ArcadeEnvironment.checkpoint(ctx,checkpointX,checkpointY,style,accent,activity.scan,now);
+  for(let side=0;side<lanes;side++){
+    const lane=ArcadeHUD.laneCenter(side,lanes,layout.leftLane,layout.rightLane);
+    ArcadeEnvironment.gate(ctx,w*lane,h*.69,style,accent,activity.gates[side],.82);
+  }
+
+  const entries=[];
   hits=[];
   actors.forEach((actor,i)=>{
     const effect=feedback?.actor===i&&!feedback.detached?feedback:null;
-    const {label,slot,station}=effect?.entity||actor;
+    const {slot,station}=effect?.entity||actor;
     const vx=station?0:(i%2?-1:1),age=Math.max(0,now-arrival);
     const inLane=view.lanes && guideStep<0 && actors.some(a=>a.station);
-    const walking=actor.pace?Math.sin(age*actor.pace/1600)*playWidth*.20:0;
+    const walking=actor.pace?Math.sin(Math.max(0,age-650)*actor.pace/1600)*playWidth*.20:0;
     const row=Math.floor(i/columns),rowSize=Math.min(columns,actors.length-row*columns);
     let anchor=playWidth*((i%columns)+.5)/rowSize;
-    if(inLane)anchor=w*(station?(slot===0?layout.leftLane:layout.rightLane):(layout.leftLane+layout.rightLane)/2);
-    const x=effect?.x??anchor+walking-vx*12*Math.max(0,1-age/450);
-    const y=effect?.y??(h/2+(row-(rows-1)/2)*Math.min(66,h*.50/rows)+(i%2?6:-4));
+    if(inLane || actors.length===1)anchor=station?w*(slot===0?layout.leftLane:layout.rightLane):checkpointX;
+    const targetY=station?h*.60:checkpointY+(row-(rows-1)/2)*Math.min(66,h*.50/rows);
+    const entry=ArcadeHUD.enterFromDoor(station||guideStep>=0?650:age,doorX,doorY,anchor+walking,targetY);
+    const x=effect?.x??entry.x,y=effect?.y??(entry.y-11);
+    hits[i]={x,y,...actor};
+    entries.push({footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,vx,entry.walking||Boolean(walking),inLane,rowSize)});
+  });
+  if(guideStep<0){
+    for(const member of group.actors)entries.push({footY:member.y*h,draw:()=>drawMember(member,now,w,h)});
+  }
+  ArcadeHUD.paintByDepth(entries);
+  ArcadeEnvironment.foreground(ctx,w,h,style,accent);
+  if(view.lanes && guideStep<0)drawCounts(group.arrived,w,h);
+  if(feedback)ArcadeHUD.drawCallout(ctx,feedback,now);
+  ctx.restore();
+
+  function drawActor(actor,i,effect,x,y,age,vx,walking,inLane,rowSize){
+    const {slot,label}=effect?.entity||actor;
     if(guideStep===i+1){
       ctx.strokeStyle='#ffe18c';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(x,y+10,22,7,0,0,2*Math.PI);ctx.stroke();
     }
@@ -244,8 +285,9 @@ function paint(now){
       ctx.beginPath();ctx.ellipse(x,y-4,19+pulse,22+pulse,0,0,Math.PI*2);ctx.stroke();
     }
     const pose=ArcadeHUD.pose(now,i,vx,age,effect);
-    ctx.fillStyle='#142d3680';ctx.beginPath();ctx.ellipse(x,y+12,14*pose.shadow,4*pose.shadow,0,0,Math.PI*2);ctx.fill();
+    contactShadow(x,y+11,14*pose.shadow);
     ctx.save();ctx.translate(x+pose.dx,y+11+pose.dy);ctx.rotate(pose.tilt);ctx.scale(pose.sx,pose.sy);
+    rimLight();
     const art=(effect?.entity||actor).art??slot;
     const image=images[art],framed=image?.naturalHeight===128;
     const size=framed?44:36;
@@ -288,11 +330,7 @@ function paint(now){
     const center=Math.max(width/2+2,Math.min(playWidth-width/2-2,x));
     ctx.fillStyle='#162831';ctx.beginPath();ctx.roundRect(center-width/2,y+16,width,pillHeight,pillHeight/2);ctx.fill();
     ctx.fillStyle='#fff';ctx.textBaseline='middle';ctx.fillText(name,center,y+16+pillHeight/2);ctx.textBaseline='alphabetic';
-    hits.push({x,y,...actor});
-  });
-  drawCohort(now,w,h);
-  if(feedback)ArcadeHUD.drawCallout(ctx,feedback,now);
-  ctx.restore();
+  }
 }
 async function start(data,path){
   if(data.archetype==='orbit')data={...data,archetype:'classifier'};
@@ -306,6 +344,13 @@ async function start(data,path){
   const painter=scenery.getContext('2d');
   if(background?.naturalWidth)ArcadeEnvironment.backdrop(painter,scenery.width,scenery.height,background);
   else ArcadeEnvironment.drawArenaBackground(painter,scenery.width,scenery.height,data.theme);
+  const shade=painter.createLinearGradient(0,0,0,scenery.height);
+  shade.addColorStop(0,'rgba(7,13,28,.22)');shade.addColorStop(.48,'rgba(7,13,28,0)');
+  shade.addColorStop(1,'rgba(7,13,28,.24)');painter.fillStyle=shade;
+  painter.fillRect(0,0,scenery.width,scenery.height);
+  style=ArcadeEnvironment.structureStyle(data.theme);
+  accent=data.theme.environment?.accent_color||data.theme.accent||'#84dacc';
+  scanTime=-Infinity;
   reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort();round=withFieldTest(createRound(data));arrival=performance.now();
   lines=ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data);guideStep=continuing?-1:0;continuing=false;
   $('sources').replaceChildren();render();emit('start');

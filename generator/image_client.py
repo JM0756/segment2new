@@ -1,9 +1,10 @@
-"""Generate character and environment art through PixelLab or an OpenAI-compatible gateway."""
+"""Generate pixel art with per-asset provider fallback."""
 import base64
 from collections import Counter, deque
 from http.client import HTTPException
 import io
 import json
+import logging
 import os
 from pathlib import Path
 from time import sleep
@@ -11,6 +12,15 @@ from PIL import Image, ImageFilter, ImageOps
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+
+
+if __package__:
+    from .settings import load_env
+else:
+    from settings import load_env
+
+load_env(Path(__file__).resolve().parents[1] / ".env")
+logger = logging.getLogger(__name__)
 
 
 class ImageGenerationError(Exception):
@@ -93,7 +103,10 @@ class ImageClient:
         self.key = os.getenv("IMAGE_API_KEY") or os.getenv("LLM_API_KEY")
         self.pixel_key = os.getenv("PIXELLAB_API_KEY", "").strip()
         self.pixel_base = (os.getenv("PIXELLAB_BASE_URL") or "https://api.pixellab.ai/v1").strip().rstrip("/")
-        self.model = os.getenv("IMAGE_MODEL", "auto")
+        self.model = os.getenv("IMAGE_MODEL") or "@cf/black-forest-labs/flux-1-schnell"
+        self.retro_key = os.getenv("RETRODIFFUSION_API_KEY", "").strip()
+        self.provider = (os.getenv("IMAGE_PROVIDER") or "auto").strip().lower()
+        self.providers = {}
 
     def animate(self, directory, asset, description):
         """Build a four-frame horizontal sheet from PixelLab's 64px text animation."""
@@ -135,9 +148,42 @@ class ImageClient:
         return relative.as_posix()
 
     def generate(self, prompt, directory, run_slug, slot):
+        order = ["retrodiffusion", "pixellab", "cloudflare"]
+        if self.provider != "auto":
+            if self.provider not in order:
+                raise ImageGenerationError(f"Unknown IMAGE_PROVIDER: {self.provider}")
+            order = order[order.index(self.provider):]
+        failures = []
+        for provider in order:
+            if ((provider == "retrodiffusion" and not self.retro_key) or
+                    (provider == "pixellab" and not self.pixel_key)):
+                logger.info("%s: skipping %s (no API key)", slot, provider)
+                continue
+            try:
+                path = self._generate_with(provider, prompt, directory, run_slug, slot)
+            except ImageGenerationError as exc:
+                reason = f"{provider}: {exc}"
+                logger.warning("%s image fallback: %s", slot, reason)
+                failures.append(reason)
+                continue
+            self.providers[slot] = provider
+            return path
+        self.providers[slot] = "procedural"
+        raise ImageGenerationError("; ".join(failures))
+
+    def _generate_with(self, provider, prompt, directory, run_slug, slot):
         headers = {"Content-Type": "application/json", "User-Agent": "ur2phd-generator/1.0"}
         scene = slot == "backgroundSprite"
-        if self.pixel_key:
+        if provider == "retrodiffusion":
+            endpoint = "https://api.retrodiffusion.ai/v1/inferences"
+            headers["X-RD-Token"] = self.retro_key
+            width, height = (384, 216) if scene else (128, 128)
+            if not scene:
+                prompt = prompt.replace("pure solid #FFFFFF background", "transparent background")
+                prompt += ". Centered full-body pixel-art character sprite, clear silhouette, transparent background."
+            payload = dict(width=width, height=height, prompt=prompt, remove_bg=not scene, num_images=1,
+                           prompt_style="rd_fast__environment" if scene else "rd_fast__game_asset")
+        elif provider == "pixellab":
             endpoint = self.pixel_base + "/generate-image-pixflux"
             headers["Authorization"] = f"Bearer {self.pixel_key}"
             size = {"width": 320, "height": 180} if scene else {"width": 128, "height": 128}
@@ -150,6 +196,7 @@ class ImageClient:
             endpoint = self.base + "/images/generations"
             if self.key:
                 headers["Authorization"] = f"Bearer {self.key}"
+            prompt = "16-bit top-down RPG pixel art, crisp pixel grid, flat shading, no anti-aliasing. " + prompt
             payload = dict(model=self.model, prompt=prompt, size="512x512", n=1, response_format="b64_json")
         suffix = "background" if scene else slot
         relative = Path("assets") / f"{run_slug}_{suffix}.png"
@@ -162,11 +209,11 @@ class ImageClient:
                         result = json.load(response)
                     break
                 except HTTPError as error:
-                    if attempt or error.code not in (429, 502, 503):
+                    if provider != "cloudflare" or attempt or error.code not in (429, 502, 503):
                         raise
                     error.close()
                     sleep(10)
-            item = result.get("image") or (result.get("data") or [result])[0]
+            item = result.get("image") or (result.get("base64_images") or result.get("images") or result.get("data") or [result])[0]
             if isinstance(item,str):
                 item = {"url":item} if item.startswith(("https://","http://")) else {"base64":item}
             encoded = item.get("base64") or item.get("b64_json")
@@ -188,8 +235,8 @@ class ImageClient:
                 raise ImageGenerationError(f"Invalid image response: {snippet!r}") from error
             target.parent.mkdir(parents=True, exist_ok=True)
             if scene:
-                output = ImageOps.fit(image.convert("RGB"), (320, 180), method=Image.Resampling.NEAREST)
-            elif self.pixel_key and image.getpixel((0,0))[3] == 0:
+                output = ImageOps.fit(image.convert("RGB"), (384, 216) if provider == "retrodiffusion" else (320, 180), method=Image.Resampling.NEAREST)
+            elif provider != "cloudflare" and image.getpixel((0,0))[3] == 0:
                 output = frame_character(image)
             else:
                 output = clean_sprite_background(image)

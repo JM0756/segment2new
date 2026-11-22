@@ -56,13 +56,18 @@ Open `http://localhost:8000/arcade/Feature-Classifier/source/index.html?config=.
 Add `--generate-sprites` (or select **2D Sprites** in Studio) to generate two characters and a matching arena background. Higher tiers reuse the characters and generate a separate arena background. Without images, the cards and games draw the floor, palette and props from the activity’s environment.
 
 ```sh
-export IMAGE_MODEL="auto"
+export IMAGE_PROVIDER="auto"
 python generator/generate.py --archetype Feature-Classifier --topic "Overfitting" --theme "Deep space" --generate-sprites --regenerate-level 2
 ```
 
-Set `PIXELLAB_API_KEY` in the repository-root `.env` or your shell to use PixelLab Pixflux. Both the CLI and Studio read this file and preserve existing shell settings. Restart Studio after editing the file. With sprite generation enabled, set `ENABLE_ANIMATED_SPRITES=true` for optional four-frame character art, or send `"animated_sprites": true` to the Studio generation or refinement API. If animation times out after 20 seconds, the character uses its static sprite. `PIXELLAB_BASE_URL` defaults to `https://api.pixellab.ai/v1`. Characters request native transparency at 128×128; the arena requests a 320×180 scene. [PixelLab v1 API](https://api.pixellab.ai/v1/docs)
+Studio and the CLI load the repository-root `.env` and give existing shell variables precedence. Restart Studio after editing the file. With the default `IMAGE_PROVIDER=auto`, each requested asset uses the first available provider in this order.
 
-An unset or empty PixelLab key selects the OpenAI-compatible `/images/generations` endpoint and Pillow character cleanup. `IMAGE_MODEL` defaults to `auto`. Set `IMAGE_BASE_URL` or `IMAGE_API_KEY` to override the text gateway URL or key for diffusion. Without the flag, the generator makes only text requests.
+1. Retro Diffusion uses `RETRODIFFUSION_API_KEY` for 128×128 characters and 384×216 backgrounds.
+2. PixelLab Pixflux uses `PIXELLAB_API_KEY`. Set `PIXELLAB_BASE_URL` to override its v1 API base.
+3. Cloudflare diffusion uses the FreeLLMAPI image gateway. Set `IMAGE_BASE_URL` and `IMAGE_API_KEY` to override the text gateway URL and key. The default `IMAGE_MODEL` is `@cf/black-forest-labs/flux-1-schnell`.
+4. The arcade draws a procedural character or environment if all requests for that asset fail.
+
+Set `IMAGE_PROVIDER` to `retrodiffusion`, `pixellab`, or `cloudflare` to start at that provider. The generation log and each level’s metadata record asset sources under `asset_providers`. For optional four-frame character animation with PixelLab, set `ENABLE_ANIMATED_SPRITES=true` or send `"animated_sprites": true` to the Studio generation or refinement API. A failed animation request keeps the static sprite.
 
 The generated levels reference PNGs in the adjacent `assets/` directory. Keep that directory alongside the JSON when copying an activity. The games resolve asset paths relative to the JSON selected by `?config=` and also accept image data URIs. Serve the arcade folder with its shared renderer and stylesheets.
 

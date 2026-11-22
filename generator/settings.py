@@ -5,7 +5,8 @@ import shlex
 
 
 def load_env(path):
-    for key in ("LLM_BASE_URL","LLM_API_KEY","LLM_MODEL","IMAGE_MODEL","PIXELLAB_API_KEY"):
+    for key in ("LLM_BASE_URL","LLM_API_KEY","LLM_MODEL","IMAGE_BASE_URL","IMAGE_API_KEY","IMAGE_MODEL","IMAGE_PROVIDER",
+                "RETRODIFFUSION_API_KEY","PIXELLAB_API_KEY"):
         if key in os.environ:
             value = os.environ[key].strip()
             if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
