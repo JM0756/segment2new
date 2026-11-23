@@ -48,5 +48,63 @@
       "accent_color": "#e5c081",
       "layout": "newsroom"
     }
+  },
+  "world_physics": {
+    "surface": {
+      "type": "wood",
+      "speedMultiplier": 1,
+      "drag": 0.86,
+      "trailStyle": "dust",
+      "trailColor": "#e5c081"
+    },
+    "structures": {
+      "entry": {
+        "x": 0.5,
+        "y": 0.22,
+        "style": "timber pavilion",
+        "label": "Evidence Desk"
+      },
+      "checkpoint": {
+        "x": 0.5,
+        "y": 0.5,
+        "radius": 0.06,
+        "style": "evidence desk",
+        "reaction": "stamp_press"
+      },
+      "leftTarget": {
+        "x": 0.24,
+        "y": 0.48,
+        "width": 0.14,
+        "height": 0.14,
+        "style": "evidence tray",
+        "reaction": "gate_open"
+      },
+      "rightTarget": {
+        "x": 0.76,
+        "y": 0.48,
+        "width": 0.14,
+        "height": 0.14,
+        "style": "evidence tray",
+        "reaction": "gate_open"
+      }
+    },
+    "obstacles": [
+      {
+        "id": "west",
+        "x": 0.38,
+        "y": 0.48,
+        "w": 0.055,
+        "h": 0.08,
+        "kind": "crate"
+      },
+      {
+        "id": "east",
+        "x": 0.64,
+        "y": 0.645,
+        "w": 0.06,
+        "h": 0.07,
+        "kind": "crate"
+      }
+    ]
   }
 }

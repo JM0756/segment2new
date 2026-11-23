@@ -45,7 +45,11 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       let receive,keyDown;
       const config=JSON.parse(fs.readFileSync(path+'default.json'));
       if (configPath !== 'default.json') {
-        config.theme.backgroundSprite='assets/scene.png';
+        config.theme.backgroundImage='assets/scene.png';
+        if(dir==='Feature-Classifier'){
+          Object.assign(config.theme,{title:'Orchard',class0:{name:'Apple'},class1:{name:'Pear'},
+            trueFeature:{name:'Stem',values:['Forked','Single']},spuriousFeatures:[{name:'Paint',values:['Ochre','Indigo']}]});
+        }
         if(dir==='Claim-Inspector'){
           config.theme.sprites={class0_asset:'assets/first.png',class1_asset:'assets/missing.png'};
         }else{
@@ -60,7 +64,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
         window:{devicePixelRatio:2,location:{search,href:'http://localhost/arcade/'+dir+'/source/index.html'+search},addEventListener:(type,fn)=>{if(type==='message')receive=fn;if(type==='keydown')keyDown=fn;}},
         fetch:async url=>{requested=url;return {json:async ()=>config};}});
 
-      for(const file of ['../../shuffle.js','game_logic.js','../../environment.js','sprites.js','../../field_cases.js','game.js','../../animation.js','../../narrator.js','../../arcade_hud.js']) vm.runInContext(fs.readFileSync(path+file,'utf8'),context);
+      for(const file of ['../../shuffle.js','game_logic.js','../../environment.js','sprites.js','../../field_cases.js','game.js','../../world.js','../../animation.js','../../narrator.js','../../arcade_hud.js']) vm.runInContext(fs.readFileSync(path+file,'utf8'),context);
       await new Promise(resolve=>setImmediate(resolve));
       assert.equal(requested,configPath);
       assert.equal(elements.get('title').textContent,config.theme.title);
@@ -91,12 +95,19 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
           assert.equal(arena.width,width*2); // DPR changes resolution independently of layout.
         }
       }
+      const narrator=[elements.get('instruction').textContent];
       elements.get('continue').onclick();
       const initial=elements.get('instruction').textContent;
+      narrator.push(initial);
       elements.get('actions').children[1].onclick();
       assert.equal(elements.get('instruction').textContent,initial);
       elements.get('actions').children[0].onclick();
       assert.match(elements.get('instruction').textContent,/^\[2\]/);
+      narrator.push(elements.get('instruction').textContent);
+      if(dir==='Feature-Classifier'&&configPath!== 'default.json'){
+        for(const word of ['Apple','Pear','Forked','Single','Stem','Paint'])assert.ok(narrator.join(' ').includes(word));
+        assert.doesNotMatch(narrator.join(' '),/crew|android|circular seal|serrated seal/i);
+      }
       elements.get('actions').children[1].onclick();
       assert.equal(elements.get('continue').textContent,'PLAY THE GAME ▶');
       elements.get('continue').onclick();
@@ -115,6 +126,31 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
           const count=events.length;press('1','Digit1');press('2','Digit2');
           assert.equal(events.length,count);press(' ','Space');
         }
+        const clickZone=name=>{
+          arena.getBoundingClientRect=()=>({left:15,top:30,width:arena.clientWidth,height:arena.clientHeight});
+          const point=vm.runInContext('world.structures.'+name,context);
+          const scaleX=vm.runInContext('mapWidth()*layout.uiScale',context);
+          const event={clientX:15+point.x*scaleX,clientY:30+point.y*arena.clientHeight};
+          arena.onpointermove(event);assert.equal(arena.style.cursor,'pointer');arena.onclick(event);
+        };
+        clickZone('checkpoint');clickZone('checkpoint');
+        actions.children.find(b=>b.textContent==='Replay').onclick();
+        await new Promise(resolve=>setImmediate(resolve));elements.get('skip').onclick();
+        frame(performance.now());
+        const read=code=>vm.runInContext(code,context);
+        const followShortcut=configPath==='default.json';
+        for(let i=0;i<6;i++){
+          const cue=read(followShortcut?'view.actors[1].aura':'view.actors[1].badge');
+          clickZone(cue?'rightTarget':'leftTarget');
+        }
+        for(let i=0;i<4;i++)clickZone('checkpoint');
+        if(followShortcut){
+          assert.equal(read('view.auditAvailable'),true);
+          actions.children.find(b=>b.textContent.startsWith('Prune Spurious Cue')).onclick();
+          for(let i=0;i<4;i++)clickZone('checkpoint');
+        }
+        assert.equal(read('view.stars'),followShortcut?2:3);
+        assert.ok(actions.children.some(b=>b.textContent==='Next Level →'));
       }
       if(dir==='Signal-Sorter'){
         const actions=elements.get('actions'),next=()=>actions.children.some(b=>b.textContent==='Next Level →');

@@ -22,28 +22,31 @@ test('one submission evaluates one case and exactly three successes unlock the l
   }
 });
 
-test('retraining is gated on reliance and can restart the four cases only once',()=>{
-  const round=createRound(config);
-  round.submit();round.retrain();assert.ok(!round.view().field);
-  for(let i=0;i<6;i++)round.act(round.view().actors[1].badge);
-  assert.equal(round.view().canRetrain,true);
-  for(let i=0;i<4;i++)round.submit();
-  assert.equal(round.view().success,false);
-  round.retrain();
-  assert.equal(round.view().completed,0);assert.ok(round.view().balanced);
-  for(let i=1;i<=4;i++){
-    round.submit();round.retrain();assert.equal(round.view().completed,i);
-    assert.match(round.view().verdict.text,/True Signal .*ACCURATE/);
+test('counter-examples reward causal training; a failed shortcut model allows one audit',()=>{
+  for(const role of ['true','spurious']){
+    const round=createRound(config);
+    let aligned=0,inverted=0;
+    for(let i=0;i<6;i++){
+      const actor=round.view().actors[1];
+      if(actor.badge===actor.aura)aligned++;else inverted++;
+      round.act(actor.aura);
+    }
+    assert.deepEqual([aligned,inverted],[4,2]);
+    assert.ok(round.view().spuriousReliance>=60);
+    round.audit(role);assert.equal(round.view().completed,0);
+    for(let i=0;i<4;i++)round.submit();
+    assert.equal(round.view().success,false);assert.equal(round.view().auditAvailable,true);
+    round.audit(role);
+    if(role==='spurious'){
+      for(let i=0;i<4;i++)round.submit();
+      assert.equal(round.view().accuracy,100);assert.equal(round.view().stars,2);
+      assert.equal(round.view().success,true);
+    }else{
+      round.audit('spurious');
+      assert.equal(round.view().done,true);assert.equal(round.view().accuracy,0);
+      assert.match(round.view().note,/reliable class signal/);
+    }
   }
-  assert.equal(round.view().accuracy,100);
-  const low=createRound(config);
-  const seen=[0,0];
-  for(let i=0;i<6;i++){
-    const badge=low.view().actors[1].badge;
-    low.act(seen[badge]++%2?1-badge:badge);
-  }
-  assert.ok(low.view().field);assert.ok(low.view().value<50);
-  low.retrain();assert.equal(low.view().balanced,false);
 });
 
 test('each decision game locks its controls and scores four domain-specific cases',()=>{
@@ -75,6 +78,6 @@ test('each decision game locks its controls and scores four domain-specific case
     }
     assert.equal(r.view().done,true,game);
     assert.equal(r.view().success,r.view().accuracy>=75,game);
-    assert.equal(r.view().canRetrain,false);
+    assert.equal(r.view().auditAvailable,false);
   }
 });

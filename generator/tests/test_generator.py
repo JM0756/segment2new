@@ -352,6 +352,102 @@ def test_station_tutorial_validates():
     assert cli.validate(ARCADE/game/"source", game, cfg, 1) is None
 
 
+@pytest.mark.parametrize("game", ARCHETYPES)
+def test_world_defaults_and_shipped_maps(tmp_path, game):
+    source = ARCADE / game / "source"
+    for level in (1, 2, 3):
+        cfg = cli.tier_default(source, level)
+        assert cli.geometry_error(cfg["world_physics"]) is None
+        assert cli.validate(source, game, cfg, level) is None
+    cfg = default(game)
+    del cfg["world_physics"]
+    client = Mock(model="test")
+    client.complete.return_value = json.dumps(cfg)
+    path = generate(client, game, "Classification", "Snowy mountain", 1, root=tmp_path, log=tmp_path/"log")
+    world = json.loads(path.read_text())["world_physics"]
+    assert world == cli.default_world(cfg,1,"Snowy mountain")
+    assert world["surface"]["type"] == "snow"
+    assert world["surface"]["trailStyle"] == "footprints"
+
+
+@pytest.mark.parametrize("patch,reason", [
+    ({"x":.04, "w":.19}, "fit inside"),
+    ({"x":.24, "y":.48}, "walking clearance"),
+    ({"x":.5, "y":.36, "w":.035, "h":.035}, "lane clear"),
+    ({"kind":"statue"}, "statue"),
+])
+def test_invalid_world_footprints(patch, reason):
+    cfg = default("Feature-Classifier")
+    cfg["world_physics"]["obstacles"][0].update(patch)
+    assert reason in cli.validate(ARCADE/"Feature-Classifier/source","Feature-Classifier",cfg,1)
+
+
+@pytest.mark.parametrize("echo_full_config", [True, False])
+def test_chat_refine_applies_world_edits_to_existing_tiers(tmp_path, monkeypatch, echo_full_config):
+    from studio import server
+    game = "Claim-Inspector"
+    group, originals = {}, {}
+    for n in (1,2,3):
+        original = cli.tier_default(ARCADE/game/"source",n)
+        original["theme"]["title"] = f"Corral {n}"
+        original["mechanics"]["answers"].reverse()
+        group[n] = f"/generated/{game}/saved_L{n}.json"
+        path = tmp_path/group[n][1:]
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.with_suffix(".png").write_bytes(PNG)
+        original["theme"]["backgroundImage"] = path.with_suffix(".png").name
+        path.write_text(json.dumps(original))
+        originals[n] = original
+    pillars = [dict(o,kind="pillar") for o in originals[2]["world_physics"]["obstacles"]]
+    patch = {"surface":{"type":"snow"}, "obstacles":pillars,
+             "structures":{k:{"style":"wooden corral"} for k in ("leftTarget","rightTarget")}}
+    client = Mock(model="test")
+    anchor = {"world_physics":patch}
+    if echo_full_config:
+        anchor = cli.merge(originals[2],anchor)
+    client.complete.return_value = json.dumps({"level2":anchor,
+                                               "level3":{"world_physics":{"surface":{"speedMultiplier":1.28}}}})
+    monkeypatch.setattr(server,"ROOT",tmp_path)
+    monkeypatch.setattr(server,"catalog",lambda:[dict(game=game,levels=group)])
+    monkeypatch.setattr(server,"LLMClient",lambda:client)
+    response = server.operation("/api/chat-refine", dict(game=game,path=group[2], sprites=False,
+                                message="Give all tiers slippery ice, stone pillars and wooden corral gates"))
+    for n, url in response["levels"].items():
+        path = tmp_path/url.lstrip("/")
+        cfg = json.loads(path.read_text())
+        world = cfg["world_physics"]
+        assert world["surface"]["type"] == "snow" and world["surface"]["drag"] == .98
+        assert world["surface"]["speedMultiplier"] == (1.28 if n==3 else 1.16)
+        assert world["obstacles"] == pillars
+        assert all(world["structures"][side]["style"]=="wooden corral" for side in ("leftTarget","rightTarget"))
+        assert cfg["mechanics"] == originals[n]["mechanics"]
+        assert cfg["theme"]["title"] == originals[n]["theme"]["title"]
+        assert (path.parent/cfg["theme"]["backgroundSprite"]).read_bytes() == PNG
+    client.complete.assert_called_once()
+
+
+def test_classifier_custom_names_values_and_narration_on_every_tier(tmp_path):
+    client = Mock(model="test")
+    identity = {"title":"Orchard inspection", "class0":{"name":"Apple"},
+                "class1":{"name":"Pear"}, "trueFeature":{"name":"Stem","values":["Forked","Single"]},
+                "spuriousFeatures":[{"name":"Crate paint","values":["Ochre","Indigo"]}]}
+    client.complete.return_value = json.dumps({"level1":{"theme":identity},
+                                               "level2":cli.tier_default(ARCADE/"Feature-Classifier/source",2)})
+    opts = dict(bundle={},root=tmp_path,log=tmp_path/"log",raise_on_failure=True)
+    args = client,"Feature-Classifier","Classification","Orchard"
+    first = generate(*args,1,**opts)
+    for n in (1,2,3):
+        path = first if n==1 else generate(*args,n,previous=first,**opts)
+        theme = json.loads(path.read_text())["theme"]
+        assert all(theme[k]==v for k,v in identity.items())
+        assert theme["options"] == ["Apple","Pear"]
+        assert set(("Forked","Single","Stem","Ochre","Indigo","Crate paint")) <= set(theme["featureLabels"].values())
+        text = json.dumps(theme).lower()
+        assert all(stock not in text for stock in ("crew","android","circular seal","serrated seal","hull seal"))
+        assert all(word in theme["hint"] for word in ("Forked","Single","Apple","Pear","Crate paint"))
+    client.complete.assert_called_once()
+
+
 def test_dotenv_and_gateway_auth(tmp_path, monkeypatch):
     from studio import server
     from urllib.error import URLError

@@ -1,7 +1,7 @@
 function correctSort(sample, choice) {
   return sample === choice;
 }
-function fitSortRule(rows) {
+function fitSortRule(rows,pruned=false) {
   function fit(cue) {
     const predictions=[0,1].map(value=>{
       const votes=rows.filter(row=>row[cue]===value);
@@ -11,6 +11,6 @@ function fitSortRule(rows) {
     return {cue,predictions,matches};
   }
   const sample=fit('sample'), aura=fit('aura');
-  return aura.matches>sample.matches?aura:sample;
+  return !pruned&&aura.matches>sample.matches?aura:sample;
 }
 if(typeof module!=='undefined')module.exports={correctSort,fitSortRule};

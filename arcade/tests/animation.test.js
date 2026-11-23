@@ -1,5 +1,14 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const hud=require('../animation.js');
+const hud=require('../animation.js'),motion=require('../world');
+const world=require('../Feature-Classifier/source/default.json').world_physics;
+test('legacy forest games retain their setting when inheriting a map',()=>{
+  const legacy=motion.forLegacyConfig({archetype:'classifier',theme:{environment:{layout:'forest-edge',setting_name:'Orchard'}}},
+    world,require('../world_materials.json'));
+  assert.equal(legacy.surface.type,'grass');
+  assert.equal(legacy.structures.leftTarget.style,'wooden corral');
+  assert.equal(legacy.structures.entry.label,'Orchard');
+  assert.equal(world.structures.leftTarget.style,'airlock');
+});
 test('feedback originates at the specific actor and retains its appearance',()=>{
   for(const [x,y,slot] of [[72,55,0],[190,68,1]]) {
     const e=hud.spawnCallout({x,y,slot},{correct:true,text:'+100 MATCH!'},100);
@@ -21,18 +30,18 @@ test('facing, stride and feedback use distinct transformations',()=>{
 });
 
 test('classified actors ease toward their chosen lane and remain in arrival order',()=>{
-  const cohort=hud.createCohort();
+  const cohort=hud.createCohort(world);
   const actor={slot:1,badge:1,aura:0};
   cohort.add(actor,0,false,100,.5,.5);
   cohort.add(actor,1,true,150,.5,.5);
   assert.equal(cohort.frame(100,2).actors[0].x,.5);
   const halfway=cohort.frame(290,2);
-  assert.ok(halfway.actors[0].x<.35 && halfway.actors[0].walking);
+  assert.ok(halfway.actors[0].x<.5 && halfway.actors[0].walking);
   assert.deepEqual(halfway.arrived,[0,0]);
-  assert.deepEqual(cohort.frame(480,2).arrived,[1,0]);
+  assert.equal(halfway.actors[0].sinceContact<0,true);
   const finished=cohort.frame(10000,2);
   assert.deepEqual(finished.arrived,[1,1]);
-  assert.ok(finished.actors.every(a=>!a.walking && a.size===17));
+  assert.ok(finished.actors.every(a=>!a.walking && a.size===24));
   assert.equal(finished.actors[0].actor,actor);
   assert.equal(finished.actors[0].correct,false);
   assert.ok(finished.actors[1].x>.65);
@@ -50,12 +59,25 @@ test('a four-frame sheet uses square source rects at eight FPS and wraps',()=>{
   assert.equal(draws.at(-1).length,5);
 });
 
-test('incoming actors walk from the entry threshold to the scanner',()=>{
-  for(const [age,y,walking] of [[0,24,true],[325,37,true],[650,50,false],[900,50,false]]){
-    assert.deepEqual(hud.enterFromDoor(age,50,24,50,50),{x:50,y,walking});
+test('footprints detour around a solid on every frame; material changes speed, glide and fading trails',()=>{
+  const {checkpoint,leftTarget}=world.structures;
+  const path=motion.route(checkpoint,leftTarget,world),o=world.obstacles[0];
+  assert.ok(path.points.length>2);
+  for(let t=0;t<path.duration;t+=2){
+    const p=motion.position(path,t);
+    assert.ok(Math.abs(p.x-o.x)>=o.w/2+.011 || Math.abs(p.y-o.y)>=o.h/2+.011);
   }
+  assert.equal(motion.position(path,path.duration).x,leftTarget.x);
+  const fast=motion.route(checkpoint,leftTarget,{...world,surface:{...world.surface,speedMultiplier:1.3,drag:.98}});
+  assert.ok(fast.duration<path.duration);
+  assert.notDeepEqual(motion.position(fast,fast.duration*.25),motion.position(path,path.duration*.25));
+  assert.ok(motion.trail(path,230).every(m=>m.alpha>0&&m.alpha<=1));
+  assert.deepEqual(motion.trail(path,path.duration+451),[]);
+  assert.equal(motion.targetAt(world,leftTarget),0);
+  assert.equal(motion.targetAt(world,checkpoint),'checkpoint');
+  assert.equal(motion.targetAt(world,world.structures.rightTarget),1);
+  assert.equal(motion.targetAt(world,o),null);
 });
-
 test('active actors and cohort members are drawn together in ground-contact order',()=>{
   const drawn=[];
   const entries=[[60,'anchor'],[69,'settled'],[35,'incoming'],[54,'walking']];
@@ -64,11 +86,12 @@ test('active actors and cohort members are drawn together in ground-contact orde
 });
 
 test('inspection pulses decay and only the receiving class gate opens on arrival',()=>{
-  const cohort=hud.createCohort();
-  cohort.add({slot:0},1,true,100);
+  const cohort=hud.createCohort(world);
+  cohort.add({slot:0},1,true,100,.5,.5);
   const state=now=>hud.structureActivity(now,100,cohort.frame(now,2).actors,2);
   assert.deepEqual(state(100),{scan:1,gates:[0,0]});
   assert.ok(state(375).scan>0 && state(375).scan<1);
-  assert.deepEqual(state(480).gates,[0,1]);
-  assert.deepEqual(state(1000),{scan:0,gates:[0,0]});
+  const contact=cohort.frame(100,2).actors[0].approach.duration+100;
+  assert.deepEqual(state(contact+.01).gates.map(x=>Math.round(x)),[0,1]);
+  assert.deepEqual(state(contact+600),{scan:0,gates:[0,0]});
 });

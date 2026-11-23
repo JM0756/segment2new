@@ -19,7 +19,7 @@ const ArcadeNarrator = {
       case 'classifier': {
         const rule=m.class_rule,labels=t.featureLabels;
         why=[labels[rule.class_a_value]+' identifies '+first+'. Check '+labels[rule.feature]+'.',
-          labels[rule.class_b_value]+' identifies '+second+', even when the surface looks similar.'];break;
+          labels[rule.class_b_value]+' identifies '+second+'. '+labels[m.features.find(f=>f.role==='spurious').name]+' can mislead.'];break;
       }
       case 'threshold':
         why=['Lower the cutoff to catch more incidents. More clear cases may trigger alerts too.',
@@ -34,7 +34,9 @@ const ArcadeNarrator = {
       case 'reward':why=['Try the first weights and compare route scores.','Try the second weights. The robot follows the largest reward.'];break;
       default:why=['Inspect the first source. Rank it by how well it answers the question.','Compare the second source. A matching word alone does not make it relevant.'];
     }
-    return [t.setting+' Meet '+first+' and '+second+'.','[1] '+why[0],'[2] '+why[1],'Ready to play. Use what you practiced in the arena.'];
+    const custom=config.archetype==='classifier'&&(t.class0||t.class1||t.trueFeature||t.spuriousFeatures);
+    const intro=custom?t.title:t.setting;
+    return [intro+' Meet '+first+' and '+second+'.','[1] '+why[0],'[2] '+why[1],'Ready to play. Use what you practiced in the arena.'];
   },
   next(step,input) {
     return (step===0&&input==='continue')||(step===1&&input===0)||(step===2&&input===1)?step+1:step;

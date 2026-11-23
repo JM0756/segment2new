@@ -47,5 +47,63 @@
       "team0": "#7de0df",
       "team1": "#efab72"
     }
+  },
+  "world_physics": {
+    "surface": {
+      "type": "metal",
+      "speedMultiplier": 1.12,
+      "drag": 0.94,
+      "trailStyle": "sparks",
+      "trailColor": "#a4f1d8"
+    },
+    "structures": {
+      "entry": {
+        "x": 0.5,
+        "y": 0.22,
+        "style": "airlock",
+        "label": "Research Desk"
+      },
+      "checkpoint": {
+        "x": 0.5,
+        "y": 0.5,
+        "radius": 0.06,
+        "style": "inspection podium",
+        "reaction": "scan_ring"
+      },
+      "leftTarget": {
+        "x": 0.24,
+        "y": 0.48,
+        "width": 0.14,
+        "height": 0.14,
+        "style": "airlock",
+        "reaction": "gate_open"
+      },
+      "rightTarget": {
+        "x": 0.76,
+        "y": 0.48,
+        "width": 0.14,
+        "height": 0.14,
+        "style": "airlock",
+        "reaction": "gate_open"
+      }
+    },
+    "obstacles": [
+      {
+        "id": "west",
+        "x": 0.38,
+        "y": 0.48,
+        "w": 0.055,
+        "h": 0.08,
+        "kind": "crate"
+      },
+      {
+        "id": "east",
+        "x": 0.64,
+        "y": 0.67,
+        "w": 0.06,
+        "h": 0.07,
+        "kind": "crate"
+      }
+    ]
   }
 }

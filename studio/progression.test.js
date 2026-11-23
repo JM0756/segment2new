@@ -20,6 +20,7 @@ test('level two unlock requires a completed level one and at least 75 percent',(
   assert.equal(p.complete(1,1,{passed:false,accuracy:90,stars:3}),1);
   assert.equal(p.complete(1,1,{passed:true,accuracy:74.9,stars:3}),1);
   assert.equal(p.complete(1,1,{passed:true,accuracy:75,stars:3}),2);
+  assert.equal(p.complete(1,1,{passed:true,accuracy:75,stars:2}),2);
   assert.equal(p.enter(2,2),2);
 });
 
@@ -54,10 +55,10 @@ test('Studio mounts the default tutorial first and gates the floating remix cont
   assert.equal(stage.src.searchParams.get('config'),levels[1]);
   assert.equal(get('remixToggle').hidden,true);
   assert.equal(get('stageChat').hidden,true);
-  function message(type,passed=true,accuracy=100){
+  function message(type,passed=true,accuracy=100,stars=accuracy>=75?3:2){
     listeners.message({origin:'http://localhost:8000',source:stage.contentWindow,data:{
       type,archetype:game,level:Number(stage.src.searchParams.get('level')),
-      run:stage.src.searchParams.get('run'),accuracy,stars:accuracy>=75?3:2,passed}});
+      run:stage.src.searchParams.get('run'),accuracy,stars,passed}});
   }
   message('ARCADE_NEXT');assert.equal(stage.src.searchParams.get('level'),'0');
   message('ARCADE_PROGRESS');assert.equal(stage.src.searchParams.get('level'),'0');
@@ -69,7 +70,7 @@ test('Studio mounts the default tutorial first and gates the floating remix cont
   message('ARCADE_PROGRESS',false,60);message('ARCADE_NEXT');
   assert.equal(stage.src.searchParams.get('level'),'1');
   for(const next of [2,3]){
-    message('ARCADE_PROGRESS');message('ARCADE_NEXT');
+    message('ARCADE_PROGRESS',true,100,next===2?2:3);message('ARCADE_NEXT');
     assert.equal(stage.src.searchParams.get('config'),levels[next]);
     assert.equal(get('stageChat').hidden,true);
   }

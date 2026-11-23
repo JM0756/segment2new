@@ -9,7 +9,8 @@ if(continuing){
 }
 const tutorialMode=params.get('mode')==='tutorial';
 let reported=false, passed=false, guideStep=-1, lines=[], practiceActors=[];
-let cohort=ArcadeHUD.createCohort();
+let cohort,world,lowProfile,hover=null;
+const entryPaths=new Map();
 let scanTime=-Infinity;
 let feedback=null, pulse=0, arrival=0, origin, hits=[];
 const canvas=$('arena'),ctx=canvas.getContext('2d');
@@ -26,12 +27,12 @@ function action(fn, inspection=false) {
   if(inspection || outcome?.destination!==undefined || view.field)scanTime=pulse;
   if(outcome?.destination!==undefined){
     const actor=view.actors[outcome.actor], hit=hits[outcome.actor];
-    cohort.add(actor,outcome.destination,outcome.correct,pulse,(hit?.x??worldWidth/2)/worldWidth,((hit?.y??worldHeight/2)+11)/worldHeight);
+    cohort.add(actor,outcome.destination,outcome.correct,pulse,(hit?.x??mapWidth()/2)/mapWidth(),((hit?.y??worldHeight/2)+11)/worldHeight);
     feedback=null;
   }else if(outcome && hits[outcome.actor])feedback=ArcadeHUD.spawnCallout(hits[outcome.actor],outcome,pulse);
   view=round.view();
   if(last!==view.target){
-    arrival=pulse;
+    arrival=pulse;entryPaths.clear();
     if(feedback)feedback.detached=true; // Keep the callout at the previous sample, but show the new cues immediately.
   }
   if(!view.done){passed=false;reported=false;}
@@ -47,7 +48,7 @@ function action(fn, inspection=false) {
 }
 function report(type,won,accuracy){
   if(params.has('mode'))parent.postMessage({type,archetype:params.get('game'),level:tier,accuracy,
-    stars:accuracy>=75?3:accuracy>=60?2:1,passed:won,run:params.get('run')},location.origin);
+    stars:tutorialMode?3:view.stars??(accuracy>=75?3:accuracy>=60?2:1),passed:won,run:params.get('run')},location.origin);
 }
 function guideInput(key){
   const next=ArcadeNarrator.next(guideStep,key);
@@ -104,7 +105,7 @@ function render() {
   $('skip').hidden=guideStep===3;
   $('help').hidden=guided;
   $('callout').classList.toggle('field-verdict',Boolean(!guided&&view.verdict));
-  $('callout').textContent=guided?'':view.note;
+  $('callout').textContent=guided?'':view.auditAvailable?'Model Audit · Which feature should the model prune?':view.success?view.note+' · '+(view.stars||3)+' stars':view.note;
   $('actions').replaceChildren();
   const actions=guideStep===3?[]:guided?view.actions.slice(0,2):view.actions;
   actions.forEach((label,i)=>{
@@ -120,11 +121,11 @@ function render() {
   if(!guided){
     if(!view.instant){const trigger=button('[SPACE] '+view.submit,submit);trigger.disabled=Boolean(view.done||view.training);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
     if(passed&&tier<3)$('actions').append(button('Next Level →',advance));
-    if(view.canRetrain){
-      const retrain=button(view.balanced?'Balanced Retrain Used ✓':'Retrain balanced',()=>action(()=>round.retrain()));
-      retrain.disabled=Boolean(view.balanced);
-      retrain.title='Re-weights training samples to ignore the trap cue';
-      $('actions').append(retrain);
+    if(view.auditAvailable){
+      ['true','spurious'].forEach((role,i)=>{
+        const label=(i?'Prune Spurious Cue · ':'Prune True Feature · ')+view.auditChoices[i];
+        $('actions').append(button(label,()=>{reported=false;action(()=>round.audit(role));}));
+      });
     }
     if(view.done)$('actions').append(button('Replay',()=>start(config,configPath)));
   }
@@ -140,6 +141,13 @@ function render() {
 }
 let worldWidth=560,worldHeight=245;
 let scenery, layout;
+function mapWidth(){
+  const z=world.structures.rightTarget;
+  return Math.max(1,Math.min(worldWidth,(layout.playableWidth/layout.uiScale-24)/(z.x+z.width/2)));
+}
+function strideTime(now){
+  return now*world.surface.speedMultiplier*.9/world.surface.drag;
+}
 function arenaLayout(logicalWidth,logicalHeight){
   const uiScale=Math.max(.68,Math.min(1.25,Math.min(logicalWidth/1100,logicalHeight/620)));
   const rightMargin=Math.max(210*uiScale,logicalWidth*.24);
@@ -172,7 +180,7 @@ function drawMember(member,now,w,h){
   contactShadow(x,y,member.size*.31);
   ctx.save();ctx.translate(x-member.size/2,y-member.size);
   rimLight();
-  ArcadeHUD.drawEntitySprite(ctx,images[art],{theme:config.theme,slot:art,facing:member.walking&&member.side===0?-1:1},member.size,now,
+  ArcadeHUD.drawEntitySprite(ctx,images[art],{theme:config.theme,slot:art,facing:member.walking&&member.side===0?-1:1},member.size,strideTime(now),
     member.walking?'walk':passed?'celebrate':'idle');
   ctx.restore();
   const mark=member.actor.badge??member.actor.sample;
@@ -187,19 +195,17 @@ function drawMember(member,now,w,h){
     }
     ctx.fill();ctx.stroke();ctx.restore();
   }
-  if(member.walking){
-    ctx.fillStyle='#e9dbb8a8';
-    for(let i=0;i<3;i++)ctx.fillRect(x+(member.side===0?1:-1)*(4+i*4),y+1-Math.sin(member.age/45+i)*2,2,2);
-  }else if(member.age<1050){
+  if(member.sinceContact>=0 && member.sinceContact<670){
     ctx.save();ctx.textAlign='center';ctx.font='bold 11px sans-serif';
     ctx.fillStyle=member.correct?'#a3ffd3':'#ffcac1';ctx.strokeStyle='#102132';ctx.lineWidth=3;
-    const text=member.correct?'+1':'Mislabelled!',ty=y-20-(member.age-380)/60;
+    const text=member.correct?'+1':'Mislabelled!',ty=y-20-member.sinceContact/60;
     ctx.strokeText(text,x,ty);ctx.fillText(text,x,ty);ctx.restore();
   }
 }
 function drawCounts(arrived,w,h){
   arrived.forEach((count,i)=>{
-    const x=w*ArcadeHUD.laneCenter(i,arrived.length,layout.leftLane,layout.rightLane),y=h*.76+Math.floor(Math.max(count-1,0)/5)*h*.047;
+    const z=ArcadeWorld.zone(world,i);
+    const x=w*z.x,y=h*Math.min(.90,z.y+z.height/2+.13+Math.floor(Math.max(count-1,0)/5)*.04);
     const text='Classified: '+count;
     if(!view.actors?.some(actor=>actor.station)){
       ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.lineWidth=3;
@@ -234,42 +240,59 @@ function paint(now){
   const playWidth=layout.playableWidth/layout.uiScale;
   const columns=Math.min(actors.length,Math.max(1,Math.floor(playWidth/85)));
   const rows=Math.ceil(actors.length/columns);
-  const doorX=w*.5, doorY=h*.24;
-  const checkpointX=Math.min(doorX,playWidth-32),checkpointY=h*.50;
+  const mw=mapWidth(),{entry:door,checkpoint}=world.structures;
   const lanes=view.lanes?.length||2;
-  const spacing=Math.min(16/w,(layout.rightLane-layout.leftLane)/Math.max(5,5*(lanes-1)));
-  const group=cohort.frame(now,lanes,layout.leftLane,layout.rightLane,spacing);
-  const activity=ArcadeHUD.structureActivity(now,scanTime,group.actors,lanes);
-  ArcadeEnvironment.gate(ctx,doorX,doorY,style,accent,1,1);
-  ArcadeEnvironment.checkpoint(ctx,checkpointX,checkpointY,style,accent,activity.scan,now);
-  for(let side=0;side<lanes;side++){
-    const lane=ArcadeHUD.laneCenter(side,lanes,layout.leftLane,layout.rightLane);
-    ArcadeEnvironment.gate(ctx,w*lane,h*.69,style,accent,activity.gates[side],.82);
-  }
-
-  const entries=[];
+  const group=cohort.frame(now,lanes);
+  const entries=[], trails=[];
   hits=[];
   actors.forEach((actor,i)=>{
     const effect=feedback?.actor===i&&!feedback.detached?feedback:null;
     const {slot,station}=effect?.entity||actor;
     const vx=station?0:(i%2?-1:1),age=Math.max(0,now-arrival);
     const inLane=view.lanes && guideStep<0 && actors.some(a=>a.station);
-    const walking=actor.pace?Math.sin(Math.max(0,age-650)*actor.pace/1600)*playWidth*.20:0;
     const row=Math.floor(i/columns),rowSize=Math.min(columns,actors.length-row*columns);
-    let anchor=playWidth*((i%columns)+.5)/rowSize;
-    if(inLane || actors.length===1)anchor=station?w*(slot===0?layout.leftLane:layout.rightLane):checkpointX;
-    const targetY=station?h*.60:checkpointY+(row-(rows-1)/2)*Math.min(66,h*.50/rows);
-    const entry=ArcadeHUD.enterFromDoor(station||guideStep>=0?650:age,doorX,doorY,anchor+walking,targetY);
-    const x=effect?.x??entry.x,y=effect?.y??(entry.y-11);
+    const z=ArcadeWorld.zone(world,slot);
+    const dest={x:station?z.x:actors.length===1||inLane?checkpoint.x:((i%columns)+.5)/rowSize*.86,
+      y:station?z.y:checkpoint.y+(row-(rows-1)/2)*Math.min(.12, .45/rows)};
+    let paths=entryPaths.get(i);
+    if(!paths||paths.x!==dest.x||paths.y!==dest.y){
+      const approach=ArcadeWorld.route(door,dest,world);
+      const patrol=actor.pace?ArcadeWorld.route(dest,{x:Math.min(.86,dest.x+.19),y:dest.y},world):null;
+      const back=patrol && {...patrol,points:[...patrol.points].reverse()};
+      paths={...dest,approach,patrol,back};entryPaths.set(i,paths);
+    }
+    let path=paths.approach,elapsed=station||guideStep>=0?path.duration:age;
+    if(paths.patrol && guideStep<0 && age>path.duration && actor.pace){
+      elapsed=(age-path.duration)*actor.pace;
+      path=paths.patrol;
+      const period=Math.max(1,path.duration);
+      const cycle=Math.floor(elapsed/period);
+      elapsed=elapsed%period;
+      if(cycle%2)path=paths.back;
+    }
+    const point=ArcadeWorld.position(path,elapsed);
+    const atCheckpoint=!station && guideStep<0 && Math.hypot(point.x-checkpoint.x,point.y-checkpoint.y)<=checkpoint.radius;
+    if(atCheckpoint&&!paths.atCheckpoint)scanTime=now;
+    paths.atCheckpoint=atCheckpoint;
+    if(!station&&guideStep<0)trails.push(...ArcadeWorld.trail(path,elapsed));
+    const x=effect?.x??point.x*mw,y=effect?.y??(point.y*h-11);
     hits[i]={x,y,...actor};
-    entries.push({footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,vx,entry.walking||Boolean(walking),inLane,rowSize)});
+    entries.push({footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,vx,!station&&guideStep<0&&elapsed<path.duration,inLane,rowSize)});
   });
   if(guideStep<0){
-    for(const member of group.actors)entries.push({footY:member.y*h,draw:()=>drawMember(member,now,w,h)});
+    for(const member of group.actors){
+      trails.push(...member.trails);
+      entries.push({footY:member.y*h,draw:()=>drawMember(member,now,mw,h)});
+    }
   }
+  for(const o of world.obstacles)entries.push({footY:(o.y+o.h/2)*h,draw:()=>ArcadeEnvironment.solid(ctx,o,mw,h,accent)});
+  ArcadeEnvironment.drawTrail(ctx,trails,world.surface,mw,h);
+  const activity=ArcadeHUD.structureActivity(now,scanTime,group.actors,lanes);
+  const cutoff=view.range?view.range[0]/(view.range[1]||1):.5;
+  ArcadeEnvironment.drawFixtures(ctx,mw,h,world,config.archetype,style,accent,activity,hover,lowProfile,now,cutoff);
   ArcadeHUD.paintByDepth(entries);
-  ArcadeEnvironment.foreground(ctx,w,h,style,accent);
-  if(view.lanes && guideStep<0)drawCounts(group.arrived,w,h);
+  if(!lowProfile)ArcadeEnvironment.foreground(ctx,w,h,style,accent);
+  if(view.lanes && guideStep<0)drawCounts(group.arrived,mw,h);
   if(feedback)ArcadeHUD.drawCallout(ctx,feedback,now);
   ctx.restore();
 
@@ -284,15 +307,15 @@ function paint(now){
       ctx.strokeStyle=entity.aura?'#ffa95e':'#7bdcf2';ctx.lineWidth=2;
       ctx.beginPath();ctx.ellipse(x,y-4,19+pulse,22+pulse,0,0,Math.PI*2);ctx.stroke();
     }
-    const pose=ArcadeHUD.pose(now,i,vx,age,effect);
+    const pose=ArcadeHUD.pose(now,i,vx,age,effect,walking?strideTime(now):now);
     contactShadow(x,y+11,14*pose.shadow);
     ctx.save();ctx.translate(x+pose.dx,y+11+pose.dy);ctx.rotate(pose.tilt);ctx.scale(pose.sx,pose.sy);
     rimLight();
     const art=(effect?.entity||actor).art??slot;
     const image=images[art],framed=image?.naturalHeight===128;
-    const size=framed?44:36;
+    const size=66;
     ctx.translate(-size/2,-size*(framed?116/128:1));
-    ArcadeHUD.drawEntitySprite(ctx,image,{theme:config.theme,slot:art},size,now,passed?'celebrate':walking?'walk':'idle');
+    ArcadeHUD.drawEntitySprite(ctx,image,{theme:config.theme,slot:art},size,strideTime(now),passed?'celebrate':walking?'walk':'idle');
     ctx.restore();
     if(entity.badge!==undefined){
       ctx.save();ctx.translate(x+10,y-4+pose.dy);ctx.fillStyle='#fff1bc';ctx.strokeStyle='#152737';ctx.lineWidth=2;
@@ -334,12 +357,19 @@ function paint(now){
 }
 async function start(data,path){
   if(data.archetype==='orbit')data={...data,archetype:'classifier'};
+  if(data.archetype==='classifier')data={...data,theme:GameLogic.themeFor(data)};
   const id=++generation;
   const [loaded,background]=await Promise.all([
     ArcadeSprites.preload(data.theme,path),
-    ArcadeSprites.loadImage(data.theme.backgroundSprite,path)
+    ArcadeSprites.loadImage(data.theme.backgroundImage||data.theme.backgroundSprite,path)
   ]);
+  let physical=data.world_physics;
+  if(!physical){
+    const [baseline,materials]=await Promise.all(['default.json','../../world_materials.json'].map(url=>fetch(url).then(r=>r.json())));
+    physical=ArcadeWorld.forLegacyConfig(data,baseline.world_physics,materials);
+  }
   if(id!==generation)return;
+  world=physical;lowProfile=Boolean(data.theme.backgroundImage||background?.naturalWidth);hover=null;entryPaths.clear();
   scenery=document.createElement('canvas');scenery.width=560;scenery.height=245;
   const painter=scenery.getContext('2d');
   if(background?.naturalWidth)ArcadeEnvironment.backdrop(painter,scenery.width,scenery.height,background);
@@ -351,14 +381,28 @@ async function start(data,path){
   style=ArcadeEnvironment.structureStyle(data.theme);
   accent=data.theme.environment?.accent_color||data.theme.accent||'#84dacc';
   scanTime=-Infinity;
-  reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort();round=withFieldTest(createRound(data));arrival=performance.now();
+  reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort(world);round=withFieldTest(createRound(data));arrival=performance.now();
   lines=ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data);guideStep=continuing?-1:0;continuing=false;
   $('sources').replaceChildren();render();emit('start');
 }
-canvas.onclick=e=>{
+function canvasTarget(e){
+  if(!round||!layout)return null;
   const b=canvas.getBoundingClientRect(),x=(e.clientX-b.left)*worldWidth/b.width,y=(e.clientY-b.top)*worldHeight/b.height;
-  const hit=hits.find(h=>Math.abs(x-h.x)<22&&Math.abs(y-h.y)<32);
-  if(hit&&hit.slot<2&&(guideStep>=0||hit.station))choose(hit.slot);
+  const target=ArcadeWorld.targetAt(world,{x:x/mapWidth(),y:y/worldHeight});
+  if(target!==null)return target;
+  const hit=hits.find(h=>Math.abs(x-h.x)<25 && y>=h.y-48 && y<=h.y+11);
+  return hit?(guideStep>=0||hit.station?hit.slot:'checkpoint'):null;
+}
+canvas.onpointermove=e=>{hover=canvasTarget(e);canvas.style.cursor=hover===null?'default':'pointer';};
+canvas.onpointerleave=()=>{hover=null;canvas.style.cursor='default';};
+canvas.onclick=e=>{
+  const target=canvasTarget(e);
+  if(typeof target==='number')choose(target);
+  if(target==='checkpoint'){
+    scanTime=performance.now();
+    if(guideStep>=0||view.field||view.selected!=null||(!view.training&&!view.instant&&!round.inspect))submit();
+    else if(round.inspect)action(()=>round.inspect(),true);
+  }
 };
 function showGuide(){feedback=null;guideStep=0;emit('hint_shown');render();}
 $('help').onclick=showGuide;

@@ -60,3 +60,19 @@ test('background cover crop, tint and sprite blits restore text smoothing',()=>{
   assert.deepEqual(operations,[[false,0,-20,320,180],['tint']]);
   assert.equal(ctx.imageSmoothingEnabled,true);
 });
+
+test('AI-background fixtures stay low and target contact draws a burst and shockwave at the configured zone',()=>{
+  const world=require('../Feature-Classifier/source/default.json').world_physics;
+  const render=(low,gates)=>{
+    const ctx=recorder();
+    scenes.drawFixtures(ctx,1000,600,world,'classifier','hatch','#abcded',{scan:0,gates},null,low,100,.5);
+    return ctx.commands;
+  };
+  const idle=render(true,[0,0]),contact=render(true,[.5,0]);
+  assert.ok(render(false,[0,0]).some(([cmd,color])=>cmd==='fillRect'&&color==='#495e73'));
+  assert.ok(!idle.some(([cmd,color])=>cmd==='fillRect'&&color==='#495e73'));
+  const z=world.structures.leftTarget;
+  const rings=ops=>ops.filter(([cmd,,x,y])=>cmd==='ellipse'&&x===1000*z.x&&y===600*z.y);
+  assert.equal(rings(contact).length,rings(idle).length+1);
+  assert.equal(contact.filter(([cmd,color,,,w,h])=>cmd==='fillRect'&&color==='#abcded'&&w===3&&h===3).length,8);
+});

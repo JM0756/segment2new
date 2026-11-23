@@ -29,15 +29,16 @@ function createFieldTest(cases, evaluate) {
 // Task-specific rounds supply evidence collected during play to review in the field.
 function withFieldTest(round) {
   if (!round.fieldCases) return round;
-  let test;
+  let test,pruned=null;
   function begin(){test=createFieldTest(round.fieldCases(), item=>item.evaluate());}
   const wrapped = {...round, view() {
     const base = round.view();
     if (!test) return base;
     const state = test.view();
     const shown=state.verdict?.item || state.current;
-    const canRetrain=Boolean(round.rebalance && (base.balanced || base.spuriousReliance>=50 && !state.success));
-    return {...base,...state, canRetrain, range:null,sources:null, subject:shown.subject,
+    const auditAvailable=Boolean(round.prune && !pruned && state.done && !state.success && base.spuriousReliance>=50);
+    return {...base,...state, auditAvailable, stars:state.success?(pruned?2:3):0,
+      accuracy:pruned==="true"?0:state.accuracy,note:pruned==="true"?"Audit failed: removing sample integrity erased the reliable signal. Accuracy 0%.":state.note, range:null,sources:null, subject:shown.subject,
       actors:shown.actors || base.actors, target:'field-'+state.completed};
   }};
   for (const name of ['act','submit','inspect','tune']) {
@@ -52,11 +53,11 @@ function withFieldTest(round) {
       return result;
     };
   }
-  if(round.rebalance){
-    wrapped.retrain=()=>{
-      const state=wrapped.view();
-      if(!state.canRetrain || state.balanced)return;
-      round.rebalance();begin();
+  if(round.prune){
+    wrapped.audit=role=>{
+      if(!wrapped.view().auditAvailable || !['true','spurious'].includes(role))return;
+      pruned=role;
+      if(role==='spurious'){round.prune();begin();}
     };
   }
   return wrapped;

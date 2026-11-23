@@ -246,6 +246,10 @@
         "class1Sprite": {
           "type": "string",
           "minLength": 1
+        },
+        "backgroundImage": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -267,6 +271,9 @@
         "prediction"
       ],
       "additionalProperties": false
+    },
+    "world_physics": {
+      "$ref": "../../world_physics.schema.json"
     }
   },
   "required": [

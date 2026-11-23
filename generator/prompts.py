@@ -19,7 +19,7 @@ KNOBS = {
     "Reward-Workshop": ("routes", (3, 4, 5)),
     "Search-Desk": ("order", (2, 3, 4)),
 }
-CLASSIFIER = {1: (2, (6, 6), (1, 1), 1), 2: (3, (8, 10), (.75, .9), 3),
+CLASSIFIER = {1: (2, (6, 6), (2/3, 1), 1), 2: (3, (8, 10), (.75, .9), 3),
          3: (3, (11, 12), (.5, .75), 4)}
 
 
@@ -32,6 +32,12 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         knobs = f"Use {features} features, pool size within {pool}, bias within {bias}, and {tests} curveballs."
     inputs = {"topic": topic, "theme": theme, "level": f"level_{level}",
               "constraints": [TIERS[level], knobs, "Give this game a themed title and short subtitle shared by all tiers."]}
+    inputs["world_physics_schema"] = json.loads((source.parents[1]/"world_physics.schema.json").read_text())
+    inputs["constraints"].append("Design top-level world_physics for each level: normalized center coordinates, "
+        "theme-matched surface speed, drag, trails, interactive structures and 1–4 separated solid obstacles. "
+        "Keep obstacles away from entry-to-checkpoint lane and zones. Preserve mechanics for physical edits. "
+        "For classifiers give theme.class0 and class1 names, trueFeature and one spuriousFeatures entry, "
+        "each feature with a display name and two themed value labels. Use them in all player-facing text.")
     if generate_sprites:
         inputs["constraints"].append(
             "In theme.sprites, supply class0_prompt and class1_prompt for the first two "
@@ -66,7 +72,7 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         inputs[name] = json.loads(path.read_text())
     inputs["evaluation_rules"] = {
         "Feature-Classifier": (
-            "Use one true and one spurious binary feature, plus one noise feature at higher levels. "
+            "Use one true and one spurious binary feature, plus one noise feature at higher levels. A six-sample wave always contains four aligned and two inverted cases. "
             "Supply featureLabels for every feature name and value. Each curveball item must map "
             "every feature name, including noise, to one of its declared values. The first spurious "
             "value predicts class A and the second predicts class B. Set expected_model_failure "

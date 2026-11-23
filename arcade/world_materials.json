@@ -1,0 +1,8 @@
+{
+  "snow": {"pattern": "snow|\\bice\\b|icy|frost", "speedMultiplier": 1.16, "drag": 0.98, "trailStyle": "footprints", "kind": "pillar", "portal": "ice arch"},
+  "grass": {"pattern": "grass|forest|grove|garden|meadow|trailhead|misty.hollow", "speedMultiplier": 0.88, "drag": 0.84, "trailStyle": "footprints", "kind": "tree", "portal": "wooden corral"},
+  "carpet": {"pattern": "carpet|club|speakeasy|velvet|party", "speedMultiplier": 0.85, "drag": 0.8, "trailStyle": "dust", "kind": "desk", "portal": "velvet rope"},
+  "wood": {"pattern": "wood|library|archive|newsroom|corral", "speedMultiplier": 1, "drag": 0.86, "trailStyle": "dust", "kind": "crate", "portal": "timber pavilion"},
+  "metal": {"pattern": "metal|station|airlock|space|reactor|laboratory|clinical|orbital", "speedMultiplier": 1.12, "drag": 0.94, "trailStyle": "sparks", "kind": "crate", "portal": "airlock"},
+  "stone": {"pattern": "stone|ruins|precinct", "speedMultiplier": 1, "drag": 0.9, "trailStyle": "pixel_tiles", "kind": "boulder", "portal": "stone arch"}
+}

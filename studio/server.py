@@ -44,7 +44,7 @@ def clean_cached_sprites(folder):
             continue
         try:
             theme = json.loads(config.read_text())["theme"]
-            asset = theme.get("backgroundSprite")
+            asset = theme.get("backgroundImage") or theme.get("backgroundSprite")
             if asset:
                 backgrounds.add((config.parent / asset).resolve() if not asset.startswith("/")
                                 else (folder.parent / asset.lstrip("/")).resolve())
@@ -139,11 +139,11 @@ def _catalog(include_versions=False):
                         field = f'class{index}Sprite'
                         asset = theme.get(field) or theme.get('sprites', {}).get(f'class{index}_asset')
                         item[field] = urljoin(public(path), asset) if asset else None
+                    background = theme.get('backgroundImage') or theme.get('backgroundSprite')
                     item.update(title=theme['title'], subtitle=theme.get('subtitle'), setting=theme.get('setting'), name=theme.get('name'), accent=theme.get('accent'),
                                 thumbnail=item['class0Sprite'],
                                 environment=theme.get('environment'), palette=theme.get('palette'),
-                                backgroundSprite=urljoin(public(path), theme['backgroundSprite'])
-                                    if theme.get('backgroundSprite') else None)
+                                backgroundSprite=urljoin(public(path), background) if background else None)
             except (ValueError, KeyError, TypeError, OSError):
                 continue
         if 'baseline' in groups:
@@ -156,6 +156,8 @@ def artwork(config):
     theme = config['theme']
     for slot in ('class0','class1','background'):
         url = theme.get(slot+'Sprite') or theme.get('sprites', {}).get(slot+'_asset')
+        if slot=='background':
+            url=theme.get('backgroundImage') or url
         if url:
             yield slot, url
 
@@ -168,10 +170,10 @@ def image_path(config_path, url):
         raise ValueError('Invalid artwork path.')
     return path
 
-def copy_art(config, original_path, directory):
+def copy_art(config, original_path, directory, prefix=''):
     theme = config['theme']
     for slot,url in list(artwork(config)):
-        relative = f'assets/{slot}.png'
+        relative = f'assets/{prefix}{slot}.png'
         target = directory/relative
         target.parent.mkdir(exist_ok=True)
         if url.startswith('data:image/'):
@@ -183,7 +185,9 @@ def copy_art(config, original_path, directory):
         else:
             shutil.copyfile(image_path(original_path,url),target)
         theme[slot+'Sprite'] = relative
-        if slot != 'background':
+        if slot == 'background':
+            theme.pop('backgroundImage',None)
+        else:
             theme.setdefault('sprites', {})[slot+'_asset'] = relative
 
 def bundle_levels(folder):
@@ -299,12 +303,16 @@ def operation(endpoint, data):
         else:
             selected = data['path']
             candidate = (ROOT/selected.lstrip('/')).resolve()
-            levels = {url:tier for item in catalog() if item['game']==game for tier,url in item['levels'].items()}
+            known = [item['levels'] for item in catalog() if item['game']==game]
+            levels = {url:tier for group in known for tier,url in group.items()}
             if candidate.parent.parent == draft_root()/game:
-                levels.update({url:tier for tier,url in bundle_levels(candidate.parent).items()})
+                known.append(bundle_levels(candidate.parent))
+                levels.update({url:tier for tier,url in known[-1].items()})
             if public(candidate)!=selected or selected not in levels:
                 raise ValueError('Unknown activity revision')
             level = levels[selected]
+            group = next(group for group in known if selected in group.values())
+            options['revision_levels'] = {int(n):json.loads((ROOT/url.lstrip('/')).read_text()) for n,url in group.items()}
             original = json.loads(candidate.read_text())
             if original['archetype']=='orbit' and game=='Feature-Classifier':
                 original['archetype']='classifier'
@@ -320,7 +328,15 @@ def operation(endpoint, data):
         warnings = []
         for tier in (1,2,3):
             if tier != level:
-                sibling = generate(client,game,topic,setting,tier,previous=path,**options)
+                sibling_options = options
+                if (options['bundle'].get('_physics_revision') and not options['generate_sprites']
+                        and tier in options['revision_levels']):
+                    source_path = ROOT/group[tier].lstrip('/')
+                    copy_art(options['revision_levels'][tier],source_path,directory,prefix=f'L{tier}_')
+                    metadata = source_path.with_suffix('.meta.json')
+                    provenance = json.loads(metadata.read_text()).get('asset_providers',{}) if metadata.is_file() else {}
+                    sibling_options = dict(options,inherited_providers=provenance)
+                sibling = generate(client,game,topic,setting,tier,previous=path,**sibling_options)
                 metadata = json.loads(sibling.with_suffix(".meta.json").read_text())
                 for key in ("sprite_error", "fallback_reason"):
                     if metadata.get(key):

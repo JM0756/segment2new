@@ -56,8 +56,8 @@ function renderCardBanner(item,file,result=false){
     image.onload=()=>onLoad(image);
     image.src=new URL(asset,new URL(file,location.href)).href;
   }
-  load(theme.backgroundSprite,image=>ArcadeEnvironment.backdrop(scene.getContext('2d'),640,240,image));
-  if(item.game==='Signal-Sorter'&&!theme.backgroundSprite){
+  load(theme.backgroundImage||theme.backgroundSprite,image=>ArcadeEnvironment.backdrop(scene.getContext('2d'),640,240,image));
+  if(item.game==='Signal-Sorter'&&!theme.backgroundImage&&!theme.backgroundSprite){
     const painter=scene.getContext('2d');
     for(const [x,color] of [[236,'#8ff6ca'],[395,'#ff9b79']]){
       painter.fillStyle='#203c55';painter.fillRect(x,113,18,18);
@@ -147,7 +147,7 @@ window.addEventListener('message',e=>{
     return;
   }
   if(m.type!=='ARCADE_PROGRESS')return;
-  passedRun=m.passed&&(level===0||m.accuracy>=75&&m.stars===3);
+  passedRun=m.passed&&(level===0||m.accuracy>=75&&m.stars>=2);
   unlocked=Progression.complete(unlocked,level,m);
   sessionUnlocks.set(active.game,unlocked);
 });

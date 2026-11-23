@@ -13,11 +13,13 @@ from time import monotonic
 from uuid import uuid4
 
 if __package__:
+    from .world_physics import default_world, edits_since, geometry_error, merge, patch_world
     from .settings import load_env
     from .image_client import ImageClient, ImageGenerationError
     from .llm_client import APIError, GatewayTimeout, LLMClient, parse_config
     from .prompts import KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
 else:
+    from world_physics import default_world, edits_since, geometry_error, merge, patch_world
     from settings import load_env
     from image_client import ImageClient, ImageGenerationError
     from llm_client import APIError, GatewayTimeout, LLMClient, parse_config
@@ -39,6 +41,10 @@ def validate(source, archetype, config, level):
         return (result.stdout + result.stderr).rstrip("\n")
     if not isinstance(config, dict) or "mechanics" not in config:
         return "Expected standalone config with mechanics and theme."
+    if "world_physics" in config:
+        error = geometry_error(config["world_physics"])
+        if error:
+            return error
     m, t = config["mechanics"], config["theme"]
     if archetype in KNOBS:
         field, counts = KNOBS[archetype]
@@ -151,10 +157,11 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
                 if slot+"_asset" in sprites:
                     theme[slot+"Sprite"] = sprites[slot+"_asset"]
         env = theme["environment"]
+        surface = config.get("world_physics",{}).get("surface",{}).get("type",env["floor_style"])
         description = (f"16-bit top-down 2D pixel art game arena background of {env['setting_name']}, "
-                       f"{env['layout']} architecture, {env['floor_style']} floor, {', '.join(env['props'])}, "
+                       f"{env['layout']} architecture, {surface} walking surface, perimeter details: {', '.join(env['props'])}, "
                        f"palette {env['primary_color']} {env['secondary_color']} {env['accent_color']}, "
-                       "atmospheric lighting, clean open center floor space, vibrant cel-shaded pixel art, "
+                       "atmospheric lighting, open floor for the live checkpoint, gates and obstacles, vibrant cel-shaded pixel art, "
                        "no characters, no text")
         try:
             theme["backgroundSprite"] = client.generate(description, directory, f"{stem}_L{level}", "backgroundSprite")
@@ -195,6 +202,81 @@ def inherit_classifier_labels(config, previous):
             theme["featureLabels"][new_key] = prior["featureLabels"][old_key]
 
 
+def apply_classifier_identity(config, template, previous):
+    theme = config["theme"]
+    keys = ("class0", "class1", "trueFeature", "spuriousFeatures")
+    if previous:
+        for key in keys:
+            if key in previous["theme"]:
+                theme[key] = copy.deepcopy(previous["theme"][key])
+            else:
+                theme.pop(key, None)
+    names = theme["options"]
+    for index, key in enumerate(keys[:2]):
+        if key in theme:
+            names[index] = theme[key]["name"]
+    if not previous and theme["title"] != template["theme"]["title"]:
+        for i,name in enumerate(names):
+            if name == template["theme"]["options"][i]:
+                names[i] = f"{theme['title']} · Type {'AB'[i]}"
+    roles = {f["role"]: f for f in config["mechanics"]["features"]}
+    labels = theme["featureLabels"]
+    stock = template["theme"]
+    custom = names != stock["options"] or any(key in theme for key in keys)
+    for role, key in (("true","trueFeature"),("spurious","spuriousFeatures")):
+        feature = roles[role]
+        spec = theme.get(key)
+        if spec and role == "spurious":
+            spec = spec[0]
+        if isinstance(spec, str):
+            spec = {"name":spec}
+        values = feature["values"]
+        if role == "true":
+            rule = config["mechanics"]["class_rule"]
+            values = [rule["class_a_value"],rule["class_b_value"]]
+        if spec:
+            labels[feature["name"]] = spec["name"]
+        if custom:
+            cue = labels.get(feature["name"],role)
+            if cue in stock["featureLabels"].values():
+                cue = "Identity mark" if role == "true" else "Surface cue"
+                labels[feature["name"]] = cue
+            for i, value in enumerate(values):
+                if spec and "values" in spec:
+                    labels[value] = spec["values"][i]
+                elif labels.get(value) in stock["featureLabels"].values():
+                    labels[value] = names[i]+" mark" if role=="true" else ("Quiet " if i==0 else "Bright ")+cue
+    if custom or labels != stock["featureLabels"]:
+        replacements = dict(zip(stock["options"],names))
+        for feature in template["mechanics"]["features"]:
+            other = roles.get(feature["role"])
+            if other:
+                for old,new in zip([feature["name"],*feature["values"]],[other["name"],*other["values"]]):
+                    if new in labels:
+                        replacements[stock["featureLabels"][old]] = labels[new]
+        # Rebuild inherited station prose as a whole. It uses shorthand such
+        # as "crew" and "hull seal" in addition to the full display names.
+        if custom:
+            rule = config["mechanics"]["class_rule"]
+            causal = labels[rule["feature"]]
+            shortcut = labels[roles["spurious"]["name"]]
+            examples = [labels[rule[k]] for k in ("class_a_value", "class_b_value")]
+            narration = {
+                "setting": f"In {theme['title']}, sort {names[0]} and {names[1]} by {causal}.",
+                "tutorial": f"Check {causal} before choosing {names[0]} or {names[1]}.",
+                "hint": f"{examples[0]} identifies {names[0]}. {examples[1]} identifies {names[1]}. {shortcut} can mislead.",
+            }
+            for key, value in narration.items():
+                if theme.get(key) == stock.get(key):
+                    theme[key] = value
+        changed = {old.casefold(): new for old, new in replacements.items() if old != new}
+        if changed:
+            pattern = re.compile("|".join(map(re.escape, sorted(changed, key=len, reverse=True))), re.I)
+            for key in ("setting", "tutorial", "hint", "practice", "success", "failure"):
+                if isinstance(theme.get(key), str):
+                    theme[key] = pattern.sub(lambda match: changed[match[0].casefold()], theme[key])
+
+
 def annotate_classifier_cases(mechanics):
     # This is derived from the same class rule the playable round uses.
     rule = mechanics["class_rule"]
@@ -209,6 +291,17 @@ def annotate_classifier_cases(mechanics):
 
 def tier_default(source, level):
     return json.loads((source / ("default.json" if level == 1 else f"level{level}.json")).read_text())
+
+
+def unchanged_game(original, response):
+    # Paths in the draft are local to its directory and the provider may omit them.
+    asset_keys = {"sprites","backgroundImage","backgroundSprite","class0Sprite","class1Sprite"}
+    def authored_theme(config):
+        return {k:v for k,v in config["theme"].items() if k not in asset_keys}
+    return (isinstance(response.get("theme"),dict) and
+            response.get("archetype")==original["archetype"] and
+            response.get("mechanics")==original["mechanics"] and
+            authored_theme(response)==authored_theme(original))
 
 
 def tier_base(source, level, previous, used_layouts):
@@ -279,7 +372,7 @@ def unpack_levels(response, level):
 
 
 def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False,
-             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None, animated_sprites=None, bundle=None, inherited_providers=None):
+             revision=None, instruction=None, progress=None, raise_on_failure=False, output_dir=None, animated_sprites=None, bundle=None, inherited_providers=None, revision_levels=None):
     generate_sprites = generate_sprites or animated_sprites is True
     started = monotonic()
     source = GAMES / archetype / "source"
@@ -290,7 +383,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     action = "Regenerating" if previous else "Generating"
     print(f"{action} Level {level} for {archetype}", flush=True)
     previous_config = json.loads(previous.read_text()) if previous else None
-    if previous and previous.with_suffix(".meta.json").is_file():
+    if previous and inherited_providers is None and previous.with_suffix(".meta.json").is_file():
         inherited_providers = json.loads(previous.with_suffix(".meta.json").read_text()).get("asset_providers")
     providers = dict(inherited_providers or {})
     sprite_error = None
@@ -330,8 +423,8 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     if bundle is not None and not previous:
         messages[0]["content"] = "Return one compact JSON level bundle. Apply the requested setting and respect the supplied schema for all overridden fields."
         messages.append({"role": "user", "content": f"Produce all tiers in ONE JSON object. Write level{level} first, "
-                         'then the other level keys (level1, level2, level3). Each value is {"theme": {...}} '
-                         'with only customized theme fields. Tier-specific mechanics and missing theme fields '
+                         'then the other level keys (level1, level2, level3). Each value may patch theme and top-level world_physics. For physical edits return only world_physics patches. '
+                         'Include only changed fields. Tier-specific mechanics and missing theme fields '
                          'come from validated templates. Use distinct environments. Stay under 1400 tokens.'})
     fallback_reason = None
     failures = []
@@ -342,6 +435,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
             progress(f"Level {level} · generating config · attempt {attempt}/3")
         print(f"Level {level}, attempt {attempt}/3: waiting for {client.model}", flush=True)
         try:
+            physics_patch = None
             if bundle is None:
                 response = client.complete(messages)
                 messages.append({"role": "assistant", "content": response})
@@ -359,15 +453,28 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                         fallback_reason = f"Gateway timeout. Using the local starting configuration. {exc}"
                         bundle[key] = {"theme": {}}
                 entry = bundle.get(key)
-                base = copy.deepcopy(revision) if revision else tier_base(source, level, previous_config, used_layouts)
+                if revision and isinstance(entry, dict) and isinstance(entry.get("world_physics"), dict):
+                    # Providers sometimes echo the complete original along with a physical edit.
+                    if unchanged_game(revision,entry):
+                        entry = {"world_physics": edits_since(revision.get("world_physics",{}),entry["world_physics"])}
+                original = revision
+                if previous and bundle.get("_physics_revision"):
+                    original = (revision_levels or {}).get(level)
+                base = copy.deepcopy(original) if original else tier_base(source, level, previous_config, used_layouts)
                 if previous and (not isinstance(entry, dict) or attempt > 1):
                     fallback_reason = "Derived from the accepted level using the local tier template."
                     config = base
-                elif isinstance(entry, dict) and set(entry) == {"theme"} and isinstance(entry["theme"], dict):
+                elif (isinstance(entry, dict) and entry and set(entry) <= {"theme","world_physics"}
+                      and isinstance(entry.get("theme", {}), dict)):
+                    physics_patch = entry.get("world_physics")
+                    if not previous and physics_patch is not None:
+                        bundle["_shared_physics"] = physics_patch
+                        bundle["_physics_revision"] = bool(revision and not entry.get("theme"))
+                    base.pop("world_physics", None)
                     if not previous and not revision:
                         base["theme"]["title"] = theme.strip() or base["theme"]["title"]
                         base["theme"]["subtitle"] = topic.strip()
-                    for field, value in entry["theme"].items():
+                    for field, value in entry.get("theme", {}).items():
                         if isinstance(value, dict) and isinstance(base["theme"].get(field), dict):
                             base["theme"][field].update(value)
                         else:
@@ -381,17 +488,39 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
         except ValueError as exc:
             category, error = "json_parse_error", str(exc)
         else:
-            if previous_config and isinstance(config, dict) and isinstance(config.get("theme"), dict):
+            retained_level = None
+            if (bundle or {}).get("_physics_revision"):
+                retained_level = revision or (revision_levels or {}).get(level)
+            if isinstance(config, dict) and isinstance(config.get("theme"),dict) and isinstance(config.get("archetype"),str):
+                defaults = default_world(config, level, instruction or theme)
+                shared = (bundle or {}).get("_shared_physics", {})
+                if revision:
+                    defaults = merge(defaults,revision.get("world_physics", {}))
+                elif previous_config and (bundle or {}).get("_physics_revision") and level in (revision_levels or {}):
+                    defaults = merge(defaults,revision_levels[level].get("world_physics", {}))
+                elif previous_config and not shared:
+                    accepted = previous_config.get("world_physics", {})
+                    if accepted != default_world(previous_config,prior_tier):
+                        defaults = merge(defaults,accepted)
+                patch = config.get("world_physics", {}) if physics_patch is None else physics_patch
+                if previous_config and bundle is not None and (not isinstance(entry,dict) or attempt>1):
+                    patch = {}
+                config["world_physics"] = patch_world(defaults,merge(shared,patch))
+                if previous_config and bundle is not None and attempt == 3 and not patch:
+                    # A shared obstacle may fit the anchor but intersect a sibling's own checkpoint.
+                    config["world_physics"] = copy.deepcopy(previous_config["world_physics"])
+            if previous_config and not retained_level and isinstance(config, dict) and isinstance(config.get("theme"), dict):
                 identity = previous_config["theme"]
                 config["theme"]["title"] = identity["title"]
                 if "subtitle" in identity:
                     config["theme"]["subtitle"] = identity["subtitle"]
                 else:
                     config["theme"].pop("subtitle", None)
-            if archetype == "Feature-Classifier":
+            if archetype == "Feature-Classifier" and not retained_level:
                 try:
                     if label_source:
                         inherit_classifier_labels(config, label_source)
+                    apply_classifier_identity(config,tier_default(source,level),previous_config)
                     annotate_classifier_cases(config["mechanics"])
                 except (KeyError, TypeError, AttributeError, IndexError):
                     pass  # The validator reports incomplete structures in the repair prompt.
@@ -400,11 +529,11 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 error = "Supply the complete theme.environment for the requested setting."
             if error is None and "layout" not in config["theme"]["environment"]:
                 error = "Select theme.environment.layout from the architectural layouts in the schema."
-            if error is None and config["theme"]["environment"]["layout"] in used_layouts:
+            if error is None and not retained_level and config["theme"]["environment"]["layout"] in used_layouts:
                 error = "Choose a new environment.layout. Already used: " + ", ".join(sorted(used_layouts))
             if error is None:
                 # Only use paths produced by the image stage.
-                for field in ("backgroundSprite","class0Sprite","class1Sprite"):
+                for field in ("backgroundImage","backgroundSprite","class0Sprite","class1Sprite"):
                     config["theme"].pop(field,None)
                 print(f"Level {level} validation passed", flush=True)
                 slug = re.sub(r"[^a-z0-9]+", "-", f"{topic}-{theme}".lower()).strip("-")[:70] or "activity"
@@ -427,9 +556,10 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                         meta["sprite_error"] = sprite_error
                         print(f"Warning: {sprite_error}", file=sys.stderr)
                 elif revision or previous_config:
-                    retained = (revision or previous_config)["theme"]
-                    if revision and retained.get("backgroundSprite") and retained.get("environment")==config["theme"].get("environment"):
-                        config["theme"]["backgroundSprite"] = retained["backgroundSprite"]
+                    retained = (retained_level or revision or previous_config)["theme"]
+                    background = retained.get("backgroundImage") or retained.get("backgroundSprite")
+                    if (retained_level or revision) and background and retained.get("environment")==config["theme"].get("environment"):
+                        config["theme"]["backgroundSprite"] = background
                     config["theme"].pop("sprites", None)
                     if retained.get("sprites"):
                         config["theme"]["sprites"] = copy.deepcopy(retained["sprites"])

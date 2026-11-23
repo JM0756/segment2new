@@ -1,14 +1,10 @@
 // Actor transforms are shared by diffusion art and the procedural characters.
 const ArcadeHUD = {
-  enterFromDoor(age,doorX,doorY,targetX,targetY){
-    const t=Math.max(0,Math.min(1,age/650)),ease=t*t*(3-2*t);
-    return {x:doorX+(targetX-doorX)*ease,y:doorY+(targetY-doorY)*ease,walking:t<1};
-  },
   structureActivity(now,scanTime,members,lanes){
     const gates=Array(lanes).fill(0);
     for(const member of members){
-      const light=Math.max(0,1-Math.abs(member.age-380)/300);
-      gates[member.side]=Math.max(gates[member.side],light);
+      if(member.sinceContact<0)continue;
+      gates[member.side]=Math.max(gates[member.side],1-member.sinceContact/450);
     }
     return {scan:Math.min(1,Math.max(0,1-(now-scanTime)/600)),gates};
   },
@@ -32,28 +28,30 @@ const ArcadeHUD = {
     this.drawAvatarIcon(ctx,image,{...spec,frame,stride:walking?Math.round(2*wave):0,blink:frame%16===3},size);
     ctx.restore();
   },
-  laneCenter(side,total,left,right){
-    if(side===0)return left;
-    if(side===1)return right;
-    return left+(right-left)*(side-1)/(total-1);
-  },
-  createCohort() {
-    const members=[],counts=[], laneCenter=this.laneCenter;
+  createCohort(world) {
+    const motion=typeof module==='undefined'?ArcadeWorld:require('./world');
+    const members=[],counts=[];
     return {
-      add(actor,side,correct,now,x=.5,y=.5){
-        const index=counts[side]||0;
+      add(actor,side,correct,now,x,y){
+        const index=counts[side]||0,z=motion.zone(world,side);
         counts[side]=index+1;
-        members.push({actor,side,index,correct,start:now,x,y});
+        const approach=motion.route({x,y},z,world);
+        const place={x:z.x+(index%5-2)*.022,y:z.y+z.height/2+.06+Math.floor(index/5)*.04};
+        const formation=motion.route(z,place,world);
+        members.push({actor,side,index,correct,start:now,approach,formation});
       },
-      frame(now,laneCount,left=.22,right=.72,spacing=.02){
+      frame(now,laneCount){
         const arrived=Array(laneCount).fill(0);
         const actors=members.map(member=>{
-          const t=Math.min(1,Math.max(0,(now-member.start)/380)),ease=1-(1-t)**3;
-          const lane=laneCenter(member.side,laneCount,left,right);
-          const dx=lane+(member.index%5-2)*spacing,dy=.69+Math.floor(member.index/5)*.047;
-          if(t===1)arrived[member.side]++;
-          return {...member,x:member.x+(dx-member.x)*ease,y:member.y+(dy-member.y)*ease,
-            size:40-23*ease,walking:t<1,age:now-member.start};
+          const age=now-member.start,sinceContact=age-member.approach.duration;
+          const path=sinceContact<0?member.approach:member.formation;
+          const elapsed=sinceContact<0?age:sinceContact;
+          const walking=elapsed<path.duration;
+          if(!walking)arrived[member.side]++;
+          const trails=motion.trail(member.approach,age);
+          if(sinceContact>=0)trails.push(...motion.trail(member.formation,sinceContact));
+          return {...member,...motion.position(path,elapsed),trails,sinceContact,walking,age,
+            size:66-42*Math.min(1,age/(member.approach.duration+member.formation.duration||1))};
         });
         return {actors,arrived};
       }
@@ -62,8 +60,8 @@ const ArcadeHUD = {
   spawnCallout(entity, outcome, now) {
     return {...outcome,x:entity.x,y:entity.y,entity:{...entity},start:now};
   },
-  pose(time,index,vx,age,feedback) {
-    const step=Math.sin(time/125+index),stride=Math.abs(step),spawn=Math.max(0,1-age/320);
+  pose(time,index,vx,age,feedback,strideTime=time) {
+    const step=Math.sin(strideTime/125+index),stride=Math.abs(step),spawn=Math.max(0,1-age/320);
     const t=feedback?Math.max(0,(time-feedback.start)/700):1;
     const kick=t<1?Math.sin(Math.PI*t):0, jump=feedback?.correct?kick:0;
     return {dy:-stride*2-jump*13,dx:feedback&&!feedback.correct?Math.sin(t*40)*kick*5:0,

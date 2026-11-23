@@ -51,5 +51,63 @@
       "team0": "#7de0df",
       "team1": "#efab72"
     }
+  },
+  "world_physics": {
+    "surface": {
+      "type": "stone",
+      "speedMultiplier": 1,
+      "drag": 0.9,
+      "trailStyle": "pixel_tiles",
+      "trailColor": "#8dd8ff"
+    },
+    "structures": {
+      "entry": {
+        "x": 0.5,
+        "y": 0.22,
+        "style": "stone arch",
+        "label": "Deep Sky Signal Array"
+      },
+      "checkpoint": {
+        "x": 0.5,
+        "y": 0.5,
+        "radius": 0.06,
+        "style": "conduit junction",
+        "reaction": "scan_ring"
+      },
+      "leftTarget": {
+        "x": 0.24,
+        "y": 0.48,
+        "width": 0.14,
+        "height": 0.14,
+        "style": "signal receiver",
+        "reaction": "beacon_flash"
+      },
+      "rightTarget": {
+        "x": 0.76,
+        "y": 0.48,
+        "width": 0.14,
+        "height": 0.14,
+        "style": "signal receiver",
+        "reaction": "beacon_flash"
+      }
+    },
+    "obstacles": [
+      {
+        "id": "west",
+        "x": 0.38,
+        "y": 0.48,
+        "w": 0.055,
+        "h": 0.08,
+        "kind": "boulder"
+      },
+      {
+        "id": "east",
+        "x": 0.64,
+        "y": 0.6950000000000001,
+        "w": 0.06,
+        "h": 0.07,
+        "kind": "boulder"
+      }
+    ]
   }
 }
