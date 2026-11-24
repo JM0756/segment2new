@@ -3,9 +3,7 @@ import json
 UI_KEYS = ("practice", "begin", "skip", "guide", "check", "again", "success", "failure", "hintLabel")
 
 PROMPT_VERSION = "fgp-v3"
-SPRITE_STYLE = ("16-bit pixel art chibi avatar character sprite matching a standardized blocky base template "
-                "(square pixel head with two dark pixel eyes, compact rectangular body, bold 2px dark outline), "
-                "wearing <theme outfit/accessories>, centered full-body standing pose, isolated on pure solid "
+SPRITE_STYLE = ("16-bit pixel art, crisp pixel edges, centered isolated sprite on a pure solid "
                 "#FFFFFF background, no floor, no shadow, no frame, no text.")
 TIERS = {
     1: "Literacy / Remember–Understand. Ask for one recognizable pattern. Give a worked cue and a direct hint.",
@@ -46,11 +44,11 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
     if archetype == "Feature-Classifier":
         inputs["cue_example"] = {"name":"aura", "role":"spurious", "values":["crimson_mist","blue_glow"],
                                  "label":"Aura", "value_labels":{"crimson_mist":"Crimson mist","blue_glow":"Blue glow"}}
-        inputs["constraints"].append("Copy concrete visual traits and distractors from the request verbatim into the two class-ordered trueFeature.values and spuriousFeatures[0].values. Put additional distractors in noise value_labels. Bind labels to the actual mechanics value IDs, including in theme-only patches. Give every cue a label and value_labels as in cue_example. These are normalized into theme.featureLabels.")
+        inputs["constraints"].append("Copy concrete visual traits and distractors from the request verbatim into the two class-ordered trueFeature.values and spuriousFeatures[0].values. Put additional distractors in noise value_labels. Keep the exact requested feature names and value labels in tutorial and subsequent tiers. Bind labels to the actual mechanics value IDs, including in theme-only patches. Give every cue a label and value_labels as in cue_example. These are normalized into theme.featureLabels.")
     if generate_sprites:
         inputs["constraints"].append(
             "In theme.sprites, supply class0_prompt and class1_prompt for the first two "
-            "theme.options (or classLabels in sorted key order). Describe each entity using this exact style: "
+            "theme.options (or classLabels in sorted key order). Draw the named subject itself. Preserve its natural anatomy or mechanical shape. Use chibi styling only for actual humanoids. Rendering style: "
             f"{SPRITE_STYLE} Use the same front/three-quarter "
             "stance with distinct silhouettes, anatomy and team palettes. Describe only that class and its true visual traits. Omit the game title, opponent and distractors. Omit asset paths."
         )
@@ -92,7 +90,7 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
             "value predicts class A and the second predicts class B. Set expected_model_failure "
             "to true exactly when that prediction disagrees with class_rule."
         ),
-        "Signal-Sorter": "Show two chibi lab couriers carrying their respective samples. Use 0 for an intact, clean sample and 1 for a damaged, noisy sample. Label the two visually distinct samples in theme.options. Mix both classes in each wave. Set pace to 0.7, 1.4 or 2.1 by level.",
+        "Signal-Sorter": "Draw the two samples themselves in their theme-specific shapes. Use 0 for an intact, clean sample and 1 for a damaged, noisy sample. Label the two visually distinct samples in theme.options. Mix both classes in each wave. Set pace to 0.7, 1.4 or 2.1 by level.",
         "Alert-Dial": "A winning cutoff flags at least minHits records, all positive.",
         "Claim-Inspector": "Each claim has one answer index in theme.options. Match claims and answers in sequence.",
         "Neighborhood-Vote": "Select k closest positions to target. Classes align with positions and have visible classLabels.",

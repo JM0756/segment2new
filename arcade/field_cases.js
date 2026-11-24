@@ -39,7 +39,7 @@ function withFieldTest(round) {
     const auditAvailable=Boolean(round.prune && !pruned && state.done && !state.success && base.spuriousReliance>=50);
     return {...base,...state, auditAvailable, stars:state.success?(pruned?2:3):0,
       accuracy:pruned==="true"?0:state.accuracy,note:pruned==="true"?"Audit failed: removing sample integrity erased the reliable signal. Accuracy 0%.":state.note, range:null,sources:null, subject:shown.subject,
-      actors:shown.actors || base.actors, target:'field-'+state.completed};
+      traits:shown.traits, actors:shown.actors || base.actors, target:'field-'+state.completed};
   }};
   for (const name of ['act','submit','inspect','tune']) {
     if (!round[name]) continue;

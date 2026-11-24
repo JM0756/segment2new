@@ -6,7 +6,7 @@ let gameId=params.get('gameId')||ArcadeTutorial.gameId(configPath,window.locatio
 const lastLevel=Number(params.get('lastLevel')||3);
 const tutorialMode=params.get('mode')==='tutorial';
 let reported=false, passed=false, guideStep=-1, lines=[], practiceActors=[];
-let cohort,world,lowProfile,hover=null;
+let escortMode,lastChoice,cohort,world,lowProfile,hover=null;
 const entryPaths=new Map(),held=new Set();
 let savedPilot=null,land,spawnUntil=-Infinity;
 const floorTop=()=>worldHeight*.43, floorHeight=()=>worldHeight*.37;
@@ -37,7 +37,7 @@ function inspectHere(){
     $('detail').textContent=[view.subject,view.detail,...(view.legend||[]),...(view.sources||[])].filter(Boolean).join(' · ');
   }
 }
-function interactHere(space=false){
+function legacyInteract(space=false){
   if(guideStep>=3){if(space)submit();return;}
   if(guideStep<0 && (view.done||view.field)){if(space)submit();return;}
   if(!takeControl())return;
@@ -49,7 +49,46 @@ function interactHere(space=false){
     else choose(target.index);
   }else if(!space && WorldEngine.nearby(pos,[world.structures.checkpoint,...inspectablePoints()]))inspectHere();
 }
-let scanTime=-Infinity,lastChoice=null;
+function inspectablePoints(){
+  const controlled=hits.findIndex(h=>!h.station);
+  return hits.filter((h,i)=>!h.station && i!==controlled).map(h=>({x:h.x/mapWidth(),y:(h.y+11)/floorHeight()}));
+}
+function interactionTarget(){
+  if(!escortMode || guideStep>2 || guideStep<0 && (view.field||view.done))return null;
+  const pos=pilot.pos();
+  const bay=WorldEngine.nearby(pos,signs());
+  if(bay)return {point:bay,type:'bay',hint:pilot.tethered?'Deliver to '+bay.label:view.readyToSubmit?'[Space] '+view.submit:'Collect the item at the scanner first.'};
+  const pad=world.structures.checkpoint;
+  if(WorldEngine.nearby(pos,[pad]))return {point:pad,type:'pad',hint:pilot.tethered?'Deep scan':'Inspect and tether'};
+  const vent=WorldEngine.nearby(pos,world.hazards);
+  if(vent)return {point:vent,type:'vent',hint:vent.active?'Disable vent':'Enable vent'};
+  return null;
+}
+function interactHere(space=false){
+  if(!escortMode)return legacyInteract(space);
+  if(guideStep>=3){if(space)submit();return;}
+  if(guideStep<0 && (view.done||view.field)){if(space)submit();return;}
+  const target=interactionTarget();
+  if(target?.type==='pad'){
+    const alreadyAttached=pilot.tethered;
+    pilot.inspect();scanTime=performance.now();
+    if(guideStep>=0)guideInput('inspect');
+    else if(!alreadyAttached && round.inspect)action(()=>round.inspect(),true);
+    render();
+  }else if(target?.type==='vent' && !space){
+    target.point.active=!target.point.active;
+  }else if(target?.type==='bay' && pilot.tethered){
+    const bay=target.point;
+    const actor=(guideStep>=0?practiceActors:view.actors).find(a=>!a.station);
+    handoff={actor,from:pilot.specimen(),to:bay,start:performance.now()};
+    pilot.release();
+    targetPulse[bay.index%2]=handoff.start;
+    if(guideStep>=0){guideInput('classify');held.clear();}
+    else choose(bay.index);
+  }else if(space && guideStep<0 && view.readyToSubmit)submit();
+}
+let handoff=null,objective='';
+let scanTime=-Infinity;
 const targetPulse=[-Infinity,-Infinity];
 let feedback=null, pulse=0, arrival=0, origin, hits=[];
 const canvas=$('arena'),ctx=canvas.getContext('2d');
@@ -67,12 +106,12 @@ function action(fn, inspection=false) {
   if(outcome?.destination!==undefined)scanTime=-Infinity;
   if(outcome?.destination!==undefined){
     const actor=view.actors[outcome.actor], hit=hits[outcome.actor];
-    cohort.add(actor,outcome.destination,outcome.correct,pulse,(hit?.x??mapWidth()/2)/mapWidth(),((hit?.y??floorHeight()/2)+11)/floorHeight());
+    handoff=null;cohort.add(actor,outcome.destination,outcome.correct,pulse,(hit?.x??mapWidth()/2)/mapWidth(),((hit?.y??floorHeight()/2)+11)/floorHeight());
     feedback=null;
   }else if(outcome && hits[outcome.actor])feedback=ArcadeHUD.spawnCallout(hits[outcome.actor],outcome,pulse);
   view=round.view();
   if(last!==view.target){
-    lastChoice=null;arrival=pulse;spawnUntil=view.field?-Infinity:pulse+500;entryPaths.clear();pilot=null;track=[];hits=[];
+    arrival=pulse;spawnUntil=view.field?-Infinity:pulse+500;entryPaths.clear();if(escortMode)pilot.release();else pilot=null;lastChoice=null;hits=[];
     if(feedback)feedback.detached=true; // Keep the callout at the previous sample, but show the new cues immediately.
   }
   if(!view.done){passed=false;reported=false;}
@@ -119,20 +158,64 @@ function advance(){
 function finishGuide(){
   ArcadeTutorial.finish(gameId);
   if(tutorialMode){passed=true;report('ARCADE_PROGRESS',true,100);report('ARCADE_NEXT',true,100);return;}
-  guideStep=-1;scanTime=-Infinity;pilot=savedPilot;savedPilot=null;held.clear();hits=[];track=[];entryPaths.clear();
+  guideStep=-1;scanTime=-Infinity;pilot=savedPilot||(escortMode?WorldEngine.controller(world):null);savedPilot=null;handoff=null;held.clear();hits=[];track=[];entryPaths.clear();
   feedback=null;arrival=performance.now();spawnUntil=pilot||view.field?-Infinity:arrival+500;render();
+}
+function consoleReadout(guided){
+  const m=config.mechanics,t=config.theme;
+  const training=m.training_pool?.size||m.samples?.length;
+  let total,completed,kind,instruction;
+  if(guided){
+    total=6;completed=guideStep;kind='Guide';instruction='';
+  }else if(view.field){
+    total=4;completed=view.completed;kind='Field case';instruction=view.done?'Review the field results.':view.submit;
+  }else if(training){
+    total=training;completed=view.target%total;kind=m.samples?'Signal':'Specimen';instruction='Inspect the item and choose its destination.';
+  }else if(view.range){
+    total=2;completed=Number(view.readyToSubmit);kind='Calibration';instruction=view.guide;
+  }else if(m.answers){
+    total=m.answers.length;completed=view.target;kind='Claim';instruction=view.guide;
+  }else{
+    total=m.k||m.order?.length||1;completed=Math.min(view.picks.length,total);kind='Selection';instruction='Choose at a station, then submit with Space.';
+  }
+  $('phase').textContent=guided?'Guide':view.field?'Field test':training?'Collect & train':view.range?'Calibrate':m.answers?'Inspect':'Select';
+  objective=instruction;
+  $('objective').textContent=objective;
+  const number=Math.min(completed+1,total);
+  $('itemId').textContent=kind+' '+(view.field&&view.verdict?view.completed:number);
+  $('progress').textContent=completed+' / '+total;
+  $('pips').replaceChildren();
+  for(let i=0;i<total;i++){
+    const pip=document.createElement('i');if(i<completed)pip.className='filled';$('pips').append(pip);
+  }
+  let traits=view.traits||[];
+  if(guided && m.class_rule){
+    traits=m.features.map(f=>[t.featureLabels[f.name],f.values.map(v=>t.featureLabels[v]).join(' / ')]);
+  }else if(!traits.length){
+    traits=(view.actors||[]).filter(a=>!a.station && a.label!==view.subject).map(a=>['Item',a.label]);
+    const active=view.actors?.find(actor=>!actor.station);
+    if(!guided && active?.aura!==undefined)traits.push(['Aura',active.aura?'Amber':'Cyan']);
+    if(!guided && view.legend)traits.push(...view.legend.map(line=>['Cue',line]));
+  }
+  $('traits').replaceChildren();
+  if(escortMode && !view.field && !guided && !pilot.tethered)traits=[];
+  if(pilot?.tethered && view.trace && !traits.some(([key])=>key===view.trace[0]))traits=[view.trace,...traits];
+  for(const [key,value] of traits){
+    const cell=document.createElement('span'),label=document.createElement('small'),text=document.createElement('b');
+    if(pilot?.traced && key===view.trace?.[0])cell.className='scan-trace';
+    label.textContent=key;text.textContent=value;cell.append(label,text);$('traits').append(cell);
+  }
+  $('subject').textContent=guided?t.title:view.traits && m.class_rule?'':view.subject;
+  $('detail').textContent=guided?'':view.detail||'';
 }
 function render() {
   view=round.view();
   const guided=guideStep>=0;
   $('title').textContent=config.theme.title;
-  $('subtitle').textContent=config.theme.subtitle||'';
-  $('subtitle').hidden=!config.theme.subtitle;
-  $('phase').textContent=tutorialMode?'Tutorial':'Level '+tier+' · '+view.phase+(view.field?' · '+view.submit:'');
+  $('title').title=config.theme.subtitle||'';
+  consoleReadout(guided);
   const scoreLabels=view.teamNames||(config.archetype==='threshold'?['Hits','False alarms']:['Verified','Errors']);
   for(let i=0;i<2;i++)$('team'+i).textContent=scoreLabels[i]+' '+view.score[i];
-  $('subject').textContent=guided?'':view.subject;
-  $('detail').textContent=guided?'':view.detail||'';
   $('metric').textContent=view.metric+' '+view.value+'%';
   $('meter').style.setProperty('--value',view.value+'%');
   $('guide').hidden=!guided;
@@ -144,8 +227,8 @@ function render() {
   $('callout').classList.toggle('field-verdict',Boolean(!guided&&view.verdict));
   $('callout').textContent=guided?'':view.auditAvailable?'Model Audit · Which feature should the model prune?':view.success?view.note+' · '+(view.stars||3)+' stars':view.note;
   $('actions').replaceChildren();
-  const move=document.createElement('span');move.textContent='[W A S D] / [Arrows] Move';
-  $('actions').append(move,button('[E] Inspect / Classify Here',()=>interactHere()));
+  const move=document.createElement('span');move.textContent='[WASD/Arrows] Move';
+  $('actions').append(move,button('[E/Space] Interact',()=>interactHere()));
   const dialog=$('modelAudit');
   if(dialog.open && (guided||!view.auditAvailable))dialog.close();
   if(!guided){
@@ -174,20 +257,14 @@ function render() {
 let worldWidth=560,worldHeight=245;
 let scenery, layout;
 function mapWidth(){
-  const z=world.structures.rightTarget;
-  return Math.max(1,Math.min(worldWidth,(layout.playableWidth/layout.uiScale-24)/(z.x+z.width/2)));
+  return worldWidth;
 }
 function strideTime(now){
   return now*world.surface.speedMultiplier*.9/world.surface.drag;
 }
 function arenaLayout(logicalWidth,logicalHeight){
   const uiScale=Math.max(.68,Math.min(1.25,Math.min(logicalWidth/1100,logicalHeight/620)));
-  const rightMargin=Math.max(210*uiScale,logicalWidth*.24);
-  // Keep the whole five-member row and count pill inside the playable area.
-  const playableWidth=Math.max(1,logicalWidth-rightMargin);
-  const rightLane=Math.max(0,Math.min(logicalWidth*.72,playableWidth-46*uiScale))/logicalWidth;
-  const leftLane=Math.min(.24,rightLane/3);
-  return {logicalWidth,logicalHeight,uiScale,rightMargin,rightLane,leftLane,playableWidth};
+  return {logicalWidth,logicalHeight,uiScale};
 }
 function resizeCanvas(){
   const dpr=window.devicePixelRatio||1;
@@ -199,7 +276,6 @@ function resizeCanvas(){
   const logicalWidth=Math.max(1,canvas.clientWidth),logicalHeight=Math.max(1,canvas.clientHeight);
   if(layout?.logicalWidth!==logicalWidth || layout.logicalHeight!==logicalHeight){
     layout=arenaLayout(logicalWidth,logicalHeight);
-    document.documentElement.style.setProperty('--dock-width',layout.rightMargin+'px');
   }
   // One transform scales sprites, text, particles and pointer hit boxes together.
   worldWidth=logicalWidth/layout.uiScale;
@@ -234,35 +310,40 @@ function drawMember(member,now,w,h){
     ctx.strokeText(text,x,ty);ctx.fillText(text,x,ty);ctx.restore();
   }
 }
-function drawCounts(arrived,w,h){
-  arrived.forEach((count,i)=>{
-    const z=ArcadeWorld.zone(world,i);
-    const x=w*z.x,y=h*Math.min(.90,z.y+z.height/2+.13+Math.floor(Math.max(count-1,0)/5)*.04);
-    const text='Classified: '+count;
-    if(!view.actors?.some(actor=>actor.station)){
-      ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.lineWidth=3;
-      ctx.strokeStyle='#162831';ctx.fillStyle='#fff';
-      const name=view.lanes[i],available=Math.min(88,w*(layout.rightLane-layout.leftLane)/Math.max(1,arrived.length-1));
-      ctx.strokeText(name,x,y+20,available);ctx.fillText(name,x,y+20,available);
-    }
-    ctx.font='bold 11px sans-serif';ctx.textAlign='center';
-    const width=ctx.measureText(text).width+12;
-    ctx.fillStyle='#162831';ctx.fillRect(x-width/2,y-10,width,16);
-    ctx.fillStyle='#fff';ctx.fillText(text,x,y+2);
-  });
+function drawFloorLandmarks(w,h,activity){
+  const {checkpoint}=world.structures;
+  const c=config.theme.palette||{};
+  ctx.save();ctx.font='bold 11px monospace';ctx.textAlign='center';
+  function pad(point,label,color){
+    const x=Math.round(point.x*w),y=Math.round(point.y*h);
+    const half=Math.round(Math.min(w*.12,Math.max(23,ctx.measureText(label).width/2+6)));
+    ctx.fillStyle=c.floor||'#283737';ctx.fillRect(x-half,y-3,half*2,11);
+    ctx.fillStyle=color;ctx.fillRect(x-half,y-4,half*2,2);
+    for(const end of [x-half,x+half-3])ctx.fillRect(end,y-4,3,12);
+    ctx.lineWidth=3;ctx.strokeStyle='#122126';ctx.fillStyle='#fff';
+    ctx.strokeText(label,x,y+20,w*.24);ctx.fillText(label,x,y+20,w*.24);
+  }
+  pad(checkpoint,'SCAN',activity.scan?'#fff':accent);
+  if(pilot?.traced && activity.scan){
+    ctx.fillStyle=accent;ctx.globalAlpha=activity.scan;
+    ctx.fillRect(checkpoint.x*w-19,checkpoint.y*h-4-(1-activity.scan)*48,38,2);
+    ctx.globalAlpha=1;
+  }
+  for(const sign of signs()){
+    const side=sign.index%2,primary=sign.index<2;
+    const name=primary && (guideStep>=0||view.range||view.training||view.instant)?view.names[side]:sign.label;
+    pad(sign,(primary?'0'+(side+1)+' · ':'')+name,activity.gates[side]>0?'#fff':(side?c.team1:c.team0)||accent);
+  }
+  ctx.restore();
 }
 function contactShadow(x,y,r){
   ctx.save();ctx.shadowColor='rgba(0,0,0,.35)';ctx.shadowBlur=3;
   ctx.fillStyle='rgba(0,0,0,0.32)';
   ctx.beginPath();ctx.ellipse(x,y,r,Math.max(2,r*.27),0,0,Math.PI*2);ctx.fill();ctx.restore();
 }
-let style,accent;
+let style,accent,handlerStyle;
 function rimLight(){
   ctx.shadowColor=accent;ctx.shadowBlur=2;ctx.shadowOffsetX=-1;ctx.shadowOffsetY=-1;
-}
-function inspectablePoints(){
-  const controlled=hits.findIndex(h=>!h.station);
-  return hits.filter((h,i)=>!h.station && i!==controlled).map(h=>({x:h.x/mapWidth(),y:(h.y+11)/floorHeight()}));
 }
 function paint(now){
   requestAnimationFrame(paint);if(!round)return;
@@ -281,7 +362,7 @@ function paint(now){
     for(const key of held){dx+=movement[key][0];dy+=movement[key][1];}
     driven=pilot.step(Math.sign(dx),Math.sign(dy),(now-frameTime)/1000);
     if(guideStep===0 && driven.moving)guideInput('move');
-    if(driven.contact==='inspect')inspectHere();
+    if(!escortMode && driven.contact==='inspect')inspectHere();
     if(driven.contact==='interact'){
       interactHere();
       if(!pilot)driven=null;
@@ -292,7 +373,7 @@ function paint(now){
   }
   frameTime=now;
   const actors=guideStep>=0?practiceActors:view.actors||view.names.slice(0,2).map((label,slot)=>({slot,label}));
-  const playWidth=layout.playableWidth/layout.uiScale;
+  const playWidth=w;
   const columns=Math.min(actors.length,Math.max(1,Math.floor(playWidth/85)));
   const rows=Math.ceil(actors.length/columns);
   const mw=mapWidth(),{entry:door,checkpoint}=world.structures;
@@ -317,17 +398,33 @@ function paint(now){
       paths={...dest,approach};entryPaths.set(i,paths);
     }
     let path=paths.approach,elapsed=station||guideStep>=0?path.duration:age;
-    const manual=i===controlled && driven;
-    const point=manual||ArcadeWorld.position(path,elapsed);
-    if(!station && guideStep<0 && !view.field && (manual?manual.moving:age<path.duration)){
+    const specimen=i===controlled;
+    const point=specimen && escortMode?pilot.specimen():specimen && driven?driven:ArcadeWorld.position(path,elapsed);
+    if(!station && guideStep<0 && !view.field && (!specimen && age<path.duration)){
       const distance=Math.hypot((point.x-door.x)*20,(point.y-door.y)*12);
       doorwayMotion=Math.max(doorwayMotion,Math.min(1,Math.max(0,2-distance)));
     }
-    if(!manual&&!station&&guideStep<0)trails.push(...ArcadeWorld.trail(path,elapsed));
+    if(!specimen&&!station&&guideStep<0)trails.push(...ArcadeWorld.trail(path,elapsed));
     const x=effect?.x??point.x*mw,y=effect?.y??(point.y*h-11);
     hits[i]={x,y,...actor};
-    entries.push({x,footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,manual?manual.facing:vx,manual?manual.moving:!station&&guideStep<0&&elapsed<path.duration,inLane,rowSize)});
+    entries.push({x,footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,specimen&&driven&&!escortMode?driven.facing:vx,specimen&&!escortMode&&driven?driven.moving:!specimen&&!station&&guideStep<0&&elapsed<path.duration)});
   });
+  if(escortMode){
+  const handler=driven||{...pilot.pos(),facing:1,moving:false};
+  const hx=handler.x*mw,hy=handler.y*h;
+  entries.push({footY:hy,draw:()=>{
+    contactShadow(hx,hy,11);
+    ArcadeHUD.drawHandler(ctx,hx,hy,handler,handlerStyle,accent,now);
+  }});
+  }
+  if(handoff){
+    const t=Math.min(1,Math.max(0,(now-handoff.start)/300));
+    const x=(handoff.from.x+(handoff.to.x-handoff.from.x)*t)*mw;
+    const y=(handoff.from.y+(handoff.to.y-handoff.from.y)*t)*h;
+    const actor=handoff.actor;
+    if(t>=1)handoff=null;
+    else entries.push({footY:y,draw:()=>drawActor(actor,0,null,x,y-11,1000,1,false)});
+  }
   if(guideStep<0){
     for(const member of group.actors){
       trails.push(...member.trails);
@@ -336,7 +433,13 @@ function paint(now){
   }
   for(const o of world.obstacles)entries.push({footY:(o.y+o.h/2)*h,draw:()=>ArcadeEnvironment.solid(ctx,o,mw,h,accent,style)});
   track=track.filter(m=>now-m.time<450);
-  for(const m of track)ArcadeEnvironment.drawTrail(ctx,[{...m,alpha:1-(now-m.time)/450}],WorldEngine.surfaceAt(world,m),mw,h);
+  for(const m of track){
+    const alpha=1-(now-m.time)/450;
+    if(handlerStyle==='diver'){
+      ctx.save();ctx.globalAlpha=alpha*.45;ctx.fillStyle='#b6eced';
+      ctx.fillRect(m.x*mw+(m.step%2?5:-5),m.y*h-(1-alpha)*8,2,2);ctx.restore();
+    }else ArcadeEnvironment.drawTrail(ctx,[{...m,alpha}],WorldEngine.surfaceAt(world,m),mw,h);
+  }
   ArcadeEnvironment.drawTrail(ctx,trails,world.surface,mw,h);
   const activity=ArcadeHUD.structureActivity(now,scanTime,group.actors,lanes);
   for(let side=0;side<2;side++)activity.gates[side]=Math.max(activity.gates[side]||0,1-(now-targetPulse[side])/350);
@@ -344,29 +447,31 @@ function paint(now){
   const cutoff=view.range?view.range[0]/(view.range[1]||1):.5;
   const fixture=part=>ArcadeEnvironment.drawFixtures(ctx,mw,h,world,config.archetype,style,accent,activity,hover,lowProfile,now,cutoff,part);
   fixture('floor');
-  for(const [part,structure] of Object.entries(world.structures)){
-    const gate=part==='leftTarget'||part==='rightTarget';
-    const footY=gate?ArcadeHUD.stationDepth(structure,entries,mw,h):structure.y*h-1;
-    entries.push({footY,draw:()=>fixture(part)});
+  fixture('entry');
+  drawFloorLandmarks(mw,h,activity);
+  for(const vent of world.hazards)ArcadeHUD.drawVent(ctx,vent,mw,h,accent,now);
+  if(pilot?.tethered){
+    const item=pilot.specimen();
+    ctx.save();ctx.strokeStyle=accent;ctx.globalAlpha=.7;ctx.shadowColor=accent;ctx.shadowBlur=3;
+    ctx.beginPath();ctx.moveTo(pilot.pos().x*mw,pilot.pos().y*h-14);ctx.lineTo(item.x*mw,item.y*h-12);ctx.stroke();ctx.restore();
   }
-
   ArcadeHUD.paintByDepth(entries);
+  const target=interactionTarget();
+  let hint=objective;
+  if(target){
+    const tx=target.point.x*mw,ty=target.point.y*h-(target.type==='pad'?77:36);
+    ctx.save();ctx.textAlign='center';ctx.font='bold 11px monospace';ctx.fillStyle='#122126';
+    ctx.fillRect(tx-12,ty-11,24,14);ctx.fillStyle='#fff';ctx.fillText('[E]',tx,ty);ctx.restore();
+    hint=target.type==='bay'&&!pilot.tethered?target.hint:'[E] '+target.hint;
+  }else if(pilot?.tethered)hint='Escort the item to a destination bay.';
+  if($('objective').textContent!==hint)$('objective').textContent=hint;
 
-  if(!view.field && !view.actors?.some(a=>a.station) && guideStep<0){
-    ctx.save();ctx.font='bold 12px sans-serif';ctx.textAlign='center';
-    for(const sign of signs()){
-      const x=sign.x*mw,y=sign.y*h,width=Math.min(mw*.28,ctx.measureText(sign.label).width+12);
-      ctx.fillStyle='#443a32';ctx.fillRect(x-width/2,y-10,width,17);ctx.fillStyle='#fff4cf';ctx.fillText(sign.label,x,y+3,width-5);
-    }
-    ctx.restore();
-  }
-  if(view.lanes && guideStep<0)drawCounts(group.arrived,mw,h);
   if(feedback)ArcadeHUD.drawCallout(ctx,feedback,now);
   ctx.restore();
   if(!lowProfile)ArcadeEnvironment.foreground(ctx,w,worldHeight,config.theme);
 
-  function drawActor(actor,i,effect,x,y,age,vx,walking,inLane,rowSize){
-    const {slot,label}=effect?.entity||actor;
+  function drawActor(actor,i,effect,x,y,age,vx,walking){
+    const {slot}=effect?.entity||actor;
     const entity=effect?.entity||actor;
     if(!entity.station && entity.aura!==undefined){
       const blink=.5+.5*Math.sin(now/(entity.aura?100:400));
@@ -384,13 +489,6 @@ function paint(now){
     ctx.translate(-size/2,-size*(framed?116/128:1));
     ArcadeHUD.drawEntitySprite(ctx,image,{theme:config.theme,slot:art},size,strideTime(now),passed?'celebrate':walking?'walk':'idle');
     ctx.restore();
-    if(!entity.station && now-scanTime<750 && view.legend){
-      ctx.save();ctx.font='bold 11px sans-serif';ctx.textAlign='center';
-      const by=y-70-4*Math.sin(Math.PI*Math.max(0,now-scanTime)/750);
-      const cue=view.legend.join(' / '),bw=Math.min(playWidth*.75,ctx.measureText(cue).width+12);
-      const bx=Math.min(playWidth-bw/2,Math.max(bw/2,x));
-      ctx.fillStyle='#192d3a';ctx.fillRect(bx-bw/2,by-12,bw,17);ctx.fillStyle='#fff2bb';ctx.fillText(cue,bx,by,bw-6);ctx.restore();
-    }
     if(entity.badge!==undefined){
       ctx.save();ctx.translate(x+10,y-4+pose.dy);ctx.fillStyle='#fff1bc';ctx.strokeStyle='#152737';ctx.lineWidth=2;
       ctx.beginPath();
@@ -413,20 +511,7 @@ function paint(now){
       ctx.fillStyle=entity.sample?'#ff936f':'#80f5c4';ctx.fillRect(-4,-4,8,8);
       if(entity.sample){ctx.fillStyle='#182c3d';ctx.fillRect(-1,-5,2,5);ctx.fillRect(0,0,3,5);}ctx.restore();
     }
-    ctx.font='600 13px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-    ctx.textAlign='center';
-    const available=inLane?w*(layout.rightLane-layout.leftLane)/2:playWidth/rowSize;
-    const width=Math.max(12,Math.min(ctx.measureText(label).width+10,available-4));
-    let name=String(label);
-    if(ctx.measureText(name).width>width-8){
-      name=name.slice(0,36);
-      while(name.length && ctx.measureText(name+'…').width>width-8)name=name.slice(0,-1);
-      name+='…';
-    }
-    const pillHeight=20;
-    const center=Math.max(width/2+2,Math.min(playWidth-width/2-2,x));
-    ctx.fillStyle='#162831';ctx.beginPath();ctx.roundRect(center-width/2,y+16,width,pillHeight,pillHeight/2);ctx.fill();
-    ctx.fillStyle='#fff';ctx.textBaseline='middle';ctx.fillText(name,center,y+16+pillHeight/2);ctx.textBaseline='alphabetic';
+
   }
 }
 async function start(data,path){
@@ -443,8 +528,9 @@ async function start(data,path){
     physical=ArcadeWorld.forLegacyConfig(data,baseline.world_physics,materials);
   }
   if(id!==generation)return;
+  escortMode=data.archetype==='classifier';lastChoice=null;
   lowProfile=Boolean(background?.naturalWidth);
-  world=WorldEngine.project(data.tilemap||WorldEngine.legacyMap(physical,tier),physical,lowProfile);pilot=null;held.clear();track=[];frameTime=performance.now();hover=null;entryPaths.clear();
+  world=WorldEngine.project(data.tilemap||WorldEngine.legacyMap(physical,tier),physical,lowProfile,escortMode?tier:null);pilot=escortMode?WorldEngine.controller(world):null;handoff=null;held.clear();track=[];frameTime=performance.now();hover=null;entryPaths.clear();
   scenery=document.createElement('canvas');scenery.width=background?.naturalWidth||560;scenery.height=background?.naturalHeight||245;
   const painter=scenery.getContext('2d');
   if(background?.naturalWidth)ArcadeEnvironment.backdrop(painter,scenery.width,scenery.height,background);
@@ -454,6 +540,7 @@ async function start(data,path){
   shade.addColorStop(1,'rgba(7,13,28,.24)');painter.fillStyle=shade;
   painter.fillRect(0,0,scenery.width,scenery.height);
   style=ArcadeEnvironment.structureStyle(data.theme);
+  handlerStyle=ArcadeHUD.handlerStyle(data.theme);
   if(lowProfile){
     const props=(data.theme.environment?.props||[]).filter(p=>['trees','barrels','crates'].includes(p));
     world.obstacles.forEach((obstacle,i)=>{
@@ -466,7 +553,7 @@ async function start(data,path){
     land=document.createElement('canvas');land.width=560;land.height=300;
     ArcadeEnvironment.ground(land.getContext('2d'),land.width,land.height,data.theme);
   }
-  scanTime=-Infinity;lastChoice=null;targetPulse.fill(-Infinity);savedPilot=null;
+  scanTime=-Infinity;targetPulse.fill(-Infinity);savedPilot=null;
   reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort(world);round=withFieldTest(createRound(data));arrival=performance.now();
   lines=ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data).map(a=>({...a,station:true}));
   practiceActors.push({...practiceActors[0],station:false,slot:2,art:0});guideStep=ArcadeTutorial.has(gameId)||params.get('transition')==='1'?-1:0;spawnUntil=guideStep<0?arrival+500:-Infinity;
@@ -478,14 +565,17 @@ function pointerDestination(e){
   const b=canvas.getBoundingClientRect(),x=(e.clientX-b.left)*worldWidth/b.width,y=(e.clientY-b.top)*worldHeight/b.height-floorTop();
   const coord={x:x/mapWidth(),y:y/floorHeight()};
   const hit=hits.find(h=>Math.abs(x-h.x)<25 && y>=h.y-50 && y<=h.y+11);
-  const sign=signs().filter(s=>Math.abs(x-s.x*mapWidth())<Math.max(25,mapWidth()*.055) && Math.abs(y-s.y*floorHeight())<15)
+  const sign=signs().filter(s=>Math.abs(x-s.x*mapWidth())<Math.max(25,mapWidth()*.055) && y-s.y*floorHeight()>-12 && y-s.y*floorHeight()<24)
     .sort((a,b)=>Math.abs(coord.y-a.y)-Math.abs(coord.y-b.y))[0];
   if(sign)return {point:sign,action:'interact'};
+  if(!escortMode){
   if(hit && !hit.station)return {point:hit===hits.find(h=>!h.station)?world.structures.checkpoint:{x:hit.x/mapWidth(),y:(hit.y+11)/floorHeight()},action:'inspect'};
+  }
+  if(escortMode && hit && hit===hits.find(h=>!h.station) && !pilot.tethered)return {point:world.structures.checkpoint,action:'interact'};
   if(hit?.station)return {point:ArcadeWorld.zone(world,hit.slot),action:'interact'};
   if(coord.y<0||coord.y>=1||coord.x<0||coord.x>=1)return null;
   const target=ArcadeWorld.targetAt(world,coord);
-  if(target==='checkpoint')return {point:world.structures.checkpoint,action:'inspect'};
+  if(target==='checkpoint')return {point:world.structures.checkpoint,action:escortMode?'interact':'inspect'};
   if(target!==null)return {point:ArcadeWorld.zone(world,target),action:'interact'};
   return {point:coord,action:''};
 }
@@ -496,7 +586,7 @@ canvas.onclick=e=>{
 };
 function showGuide(){
   if(guideStep<0)savedPilot=pilot;
-  pilot=null;feedback=null;held.clear();hits=[];track=[];guideStep=0;spawnUntil=-Infinity;emit('hint_shown');render();
+  pilot=escortMode?WorldEngine.controller(world):null;handoff=null;feedback=null;held.clear();hits=[];track=[];guideStep=0;spawnUntil=-Infinity;emit('hint_shown');render();
 }
 $('help').onclick=showGuide;
 $('continue').onclick=submit;

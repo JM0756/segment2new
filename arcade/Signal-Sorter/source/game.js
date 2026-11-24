@@ -14,6 +14,7 @@ function createRound({mechanics,theme}) {
     view(){
       const slot=samples[Math.min(index,samples.length-1)];
       return {phase:'Training set',auditChoices:['Sample integrity','Aura'],spuriousReliance:reliance(),lanes:theme.options,target:index,names:theme.options,actions:['Accept into Training Set','Filter Out Noise'],
+        traits:[['Signal',theme.options[slot]],['Aura',auras[Math.min(index,samples.length-1)]?'Amber':'Cyan']],
         actors:[{slot,label:theme.options[slot],sample:slot,aura:auras[Math.min(index,samples.length-1)]}],
         accuracy:100*correct/(index||1),metric:'Model accuracy',value:Math.round(100*correct/samples.length),
         score:[correct,index-correct],teamNames:['Clean decisions','Errors'],subject:theme.options[slot],detail:theme.hint,

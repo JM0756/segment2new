@@ -294,8 +294,8 @@ def test_character_prompt_perspective():
     from generator.prompts import build_messages
     messages = build_messages(ARCADE/"Alert-Dial/source", "Alert-Dial", "Risk", "Market", 1, None, True)
     rules = json.loads(messages[1]["content"])["constraints"]
-    assert any("standardized blocky base template" in rule and
-               "square pixel head with two dark pixel eyes" in rule and
+    assert any("Preserve its natural anatomy" in rule and
+               "only for actual humanoids" in rule and
                "no floor, no shadow, no frame, no text" in rule for rule in rules)
 
 
@@ -501,7 +501,7 @@ def test_pixflux_routes_native_art(tmp_path, monkeypatch, slot):
     encoded = base64.b64encode(buffer.getvalue()).decode()
     send = Mock(return_value=BytesIO(json.dumps({"image":{"type":"base64","base64":"data:image/png;base64,"+encoded}}).encode()))
     monkeypatch.setattr("generator.image_client.urlopen",send)
-    asset = ImageClient().generate("crew",tmp_path,"orbital",slot)
+    asset = ImageClient().generate("bioluminescent jellyfish with a translucent bell",tmp_path,"orbital",slot)
     request = send.call_args.args[0]
     payload = json.loads(request.data)
     assert request.full_url == "https://pixflux.example/v1/generate-image-pixflux"
@@ -511,7 +511,7 @@ def test_pixflux_routes_native_art(tmp_path, monkeypatch, slot):
     with Image.open(tmp_path/asset) as saved:
         assert saved.size == expected
         if not scene:
-            assert "blocky 2.5D chibi" in payload["description"]
+            assert payload["description"] == "bioluminescent jellyfish with a translucent bell"
             assert saved.getpixel((64,64)) == (255,255,255,255)
             assert saved.getpixel((0,0))[3] == 0
 
@@ -1031,3 +1031,46 @@ def test_lawn_traits_drive_gameplay_labels_and_distinct_art_across_tiers(tmp_pat
         prompts = [cli.character_prompt(cfg, i, "Garden Plants versus Lawn Zombies") for i in range(2)]
         assert "zombie" not in prompts[0].lower() and "plant" not in prompts[1].lower()
         assert labels["round"] in prompts[0] and labels["spiky"] in prompts[1]
+
+@pytest.mark.parametrize("name", ["Jellyfish","Mechanical mimic sea drone","Garden plant","Pressure sensor","Document","Worker drone"])
+def test_nonhuman_sprite_preserves_subject_anatomy(name):
+    cfg = default("Feature-Classifier")
+    cfg["theme"]["options"] = [name,"Pilot"]
+    cfg["theme"]["featureLabels"]["round"] = "Pulsing translucent bell"
+    prompt = cli.character_prompt(cfg, 0, "Glowing tentacles. Standardized blocky chibi avatar with square pixel head.")
+    assert all(term in prompt for term in (name,"Pulsing translucent bell","Glowing tentacles"))
+    assert not any(term in prompt.lower() for term in ("chibi","humanoid","square pixel head","outfit"))
+    assert "chibi humanoid" in cli.character_prompt(cfg,1,"Space pilot")
+
+def test_generic_model_specs_cannot_displace_concrete_labels(tmp_path):
+    names = ["Bioluminescent Jellyfish","Sea Drone"]
+    labels = dict(core="Shell structure",round="Pulsing translucent bell",spiky="Metallic seams",
+                  aura="Reef companions",green="Cyan coral glow",red="Remora followers")
+    patch = dict(options=names,featureLabels=labels,
+                 trueFeature={"name":"Identity mark","values":[names[0]+" mark", names[1]+" mark"]},
+                 spuriousFeatures=[{"name":"Surface cue","values":["Quiet Surface cue","Bright Surface cue"]}])
+    text = Mock(model="test")
+    text.complete.return_value = json.dumps({"level1":{"theme":patch}})
+    opts = dict(root=tmp_path,log=tmp_path/"log",bundle={},raise_on_failure=True)
+    first = None
+    for tier in (1,2,3):
+        path = generate(text,"Feature-Classifier","Trait classification","Reef",tier,previous=first,**opts)
+        first = first or path
+        theme = json.loads(path.read_text())["theme"]
+        assert all(theme["featureLabels"][k] == v for k,v in labels.items())
+        assert theme["trueFeature"] == {"name":labels["core"],"values":[labels["round"],labels["spiky"]]}
+        assert theme["spuriousFeatures"] == [{"name":labels["aura"],"values":[labels["green"],labels["red"]]}]
+
+def test_named_prompt_cues_survive_a_template_only_bundle(tmp_path):
+    text=Mock(model="test")
+    text.complete.return_value=json.dumps({"level1":{"theme":{"options":["Jellyfish","Drone"]}}})
+    request=("True feature: Body structure (Pulsing translucent bell vs Metallic seams). "
+             "Spurious feature: Reef company (Cyan coral glow vs Remora followers).")
+    opts=dict(root=tmp_path,log=tmp_path/"log",bundle={},raise_on_failure=True)
+    first=None
+    for tier in (1,2,3):
+        path=generate(text,"Feature-Classifier","Classification",request,tier,previous=first,**opts)
+        first=first or path
+        labels=json.loads(path.read_text())["theme"]["featureLabels"]
+        assert [labels[k] for k in ("core","round","spiky","aura","green","red")]==[
+            "Body structure","Pulsing translucent bell","Metallic seams","Reef company","Cyan coral glow","Remora followers"]

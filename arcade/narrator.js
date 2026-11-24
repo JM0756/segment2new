@@ -35,11 +35,19 @@ const ArcadeNarrator = {
       default:why=['Inspect the first source. Rank it by how well it answers the question.','Compare the second source. A matching word alone does not make it relevant.'];
     }
     const classifier=config.archetype==='classifier',sorter=config.archetype==='sorter';
+    if(!classifier)return [
+      'Part 1 · 1/6 · Move around '+t.title+' with WASD, arrows or a floor click.',
+      'Part 1 · 2/6 · Press E near the center to inspect. '+why[0],
+      'Part 1 · 3/6 · Click a target or walk to it and press E to practice your decision.',
+      'Part 2 · 4/6 · '+why[0],
+      'Part 2 · 5/6 · '+why[1],
+      'Part 2 · 6/6 · '+t.hint+' Use Space to evaluate your work.'
+    ];
     const inspect=classifier?why[0]+' '+why[1]:why[0];
     return [
       'Part 1 · 1/6 · Move. In '+t.title+', use WASD or the arrow keys to walk around props. You can also click the floor. Try a few steps.',
-      'Part 1 · 2/6 · Inspect. Approach the specimen at the center, then press E or click it to examine its cues. '+inspect,
-      'Part 1 · 3/6 · Classify. Walk to the left or right leader and press E or Space. Clicking a leader walks you there. Practice now. After training, Space starts the Field Test.',
+      'Part 1 · 2/6 · Inspect. Approach the specimen at the center, then press E or Space to inspect and tether it. Press E again for a deep scan. '+inspect,
+      'Part 1 · 3/6 · Classify. Escort the tethered specimen to a bay and press E or Space to deliver it. Clicking a leader walks you there. Practice now. After training, Space starts the Field Test.',
       'Part 2 · 4/6 · Signals and shortcuts. '+(classifier?inspect:why.join(' '))+' A classifier learns from your decisions. An outfit or a patch of static can predict a class in training by coincidence.',
       'Part 2 · 5/6 · Counter-examples. Look for a familiar identity with an unusual surface cue. Correctly labeling these exceptions helps the model generalize as Levels 2 and 3 change the environment.',
       'Part 2 · 6/6 · Test the model. '+(classifier?'The Spurious Reliance bar rises when you mislabel counter-examples. ':sorter?'Compare field accuracy with your training decisions. ':'Compare your decisions with the field results. In Feature-Classifier, watch the Spurious Reliance bar. ')+'If a shortcut causes a failed Field Test, Model Audit lets you prune the misleading cue and retry for two stars. Removing the true signal loses the audit.'

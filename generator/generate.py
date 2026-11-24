@@ -128,16 +128,20 @@ def character_prompt(config, index, description):
     rule = config["mechanics"].get("class_rule", {})
     cue = theme.get("featureLabels", {}).get(rule.get(("class_a_value", "class_b_value")[index]), "")
     palette = theme.get("palette", {}).get(f"team{index}") or ("warm amber", "cool violet")[index]
-    silhouette = ("broad rounded", "tall angular")[index]
+    nonhuman = re.search(r"\b(?:jellyfish|drones?|plants?|creatures?|sensors?|documents?|machines?|robots?|probes?|signals?|corals?)\b", name, re.I)
+    human = not nonhuman and re.search(r"\b(?:humans?|people|crew|pilots?|astronauts?|divers?|scientists?|guards?|knights?|couriers?|zombies?|workers?)\b", name, re.I)
+    if not human and description:
+        # Older saved prompts may contain an appended avatar template. Keep the subject text.
+        description = re.split(r"(?i)\b(?:16-bit pixel art chibi|standardized blocky|chibi|humanoid avatar|square pixel head)\b", description)[0].strip(" .,")
+    silhouette = "chibi humanoid proportions" if human else "the subject's natural shape and proportions"
     if palette == theme.get("palette", {}).get(f"team{1-index}"):
         palette = ("warm amber", "cool violet")[index]
     parts = [name]
     for detail in (cue, description):
         if detail and not (roots(detail) & opposing):
             parts.append(detail)
-    parts.append(f"{silhouette} silhouette, {palette} palette")
-    return ". ".join(parts) + ". " + SPRITE_STYLE.replace(
-        "<theme outfit/accessories>", "accessories specific to this character")
+    parts.append(f"{silhouette}, {palette} palette")
+    return ". ".join(parts) + ". " + SPRITE_STYLE
 
 
 def attach_sprites(config, previous, source, archetype, level, directory, stem, animated_sprites=None, providers=None, provider_errors=None):
@@ -269,6 +273,12 @@ def normalize_required_ui(config, exemplar, game):
                 theme[key] = defaults[key]
 
 
+def generic_cue(label, names):
+    return not isinstance(label, str) or not label.strip() or label.strip().casefold() in {
+        "quiet surface cue", "bright surface cue", "surface cue", "identity mark",
+        "rapid beacon", "slow beacon", *(f"{name} mark".casefold() for name in names)}
+
+
 def normalize_classifier_labels(config):
     theme = config["theme"]
     if theme.get("featureLabels") is None:
@@ -282,7 +292,8 @@ def normalize_classifier_labels(config):
         for key in [name, *feature["values"]]:
             supplied = display if key == name else overrides.get(key) if isinstance(overrides, dict) else None
             if isinstance(supplied, str) and supplied.strip():
-                labels[key] = supplied.strip()
+                if not generic_cue(supplied.strip(), theme.get("options", [])) or not labels.get(key):
+                    labels[key] = supplied.strip()
             elif not isinstance(labels.get(key), str) or not labels[key].strip():
                 words = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", key)
                 labels[key] = re.sub(r"[_-]+", " ", words).strip().capitalize()
@@ -303,7 +314,15 @@ def inherit_classifier_labels(config, previous):
             current_values = [config["mechanics"]["class_rule"][key] for key in keys]
             old_values = [previous["mechanics"]["class_rule"][key] for key in keys]
         for new_key, old_key in zip([feature["name"],*current_values], [old["name"],*old_values]):
-            theme["featureLabels"][new_key] = prior["featureLabels"][old_key]
+            if feature["role"] != "true" and new_key in old["values"]:
+                old_key = new_key
+            inherited = prior["featureLabels"][old_key]
+            current = theme["featureLabels"].get(new_key)
+            fallback = {"Shape", "Rounded outline", "Angular outline", "Accessory", "Striped accessory",
+                        "Spotted accessory", "Decoration", "Plain trim", "Patterned trim"}
+            if (generic_cue(current, theme["options"]) or current in fallback or
+                    not generic_cue(inherited, theme["options"]) and inherited not in fallback):
+                theme["featureLabels"][new_key] = inherited
 
 
 def requested_traits(text, names):
@@ -325,10 +344,17 @@ def requested_traits(text, names):
         traits.append(" and ".join(items(clause)))
     def values(pattern):
         match = re.search(pattern + r"\s*(?::|=|include\b|are\b|like\b|such as\b)\s*([^.;\n]+)", text, re.I)
-        return items(match[1]) if match else []
-    causal = values(r"(?:true features?|true cues?|causal traits?)")
-    distractors = values(r"(?:distractors?|spurious (?:features?|cues?)|props)")
-    return {"true": [trait or cue for trait, cue in zip(traits, (causal + ["", ""])[:2])],
+        if not match:
+            return "", []
+        clause = match[1].strip()
+        named = re.fullmatch(r"([^():]+?)\s*(?:\(([^()]+)\)|:\s*(.+))", clause)
+        if named:
+            return named[1].strip(), items(named[2] or named[3])
+        return "", items(clause)
+    true_name, causal = values(r"(?:true features?|true cues?|causal (?:traits?|features?))")
+    spurious_name, distractors = values(r"(?:distractors?|spurious (?:features?|cues?)|props)")
+    return {"names": {"true": true_name, "spurious": spurious_name},
+            "true": [trait or cue for trait, cue in zip(traits, (causal + ["", ""])[:2])],
             "spurious": distractors[:2], "noise": distractors[2:4]}
 
 
@@ -339,7 +365,7 @@ def apply_classifier_identity(config, template, previous, request=""):
         for key in keys:
             if key in previous["theme"]:
                 theme[key] = copy.deepcopy(previous["theme"][key])
-            else:
+            elif key in ("class0", "class1"):
                 theme.pop(key, None)
     names = theme["options"]
     for index, key in enumerate(keys[:2]):
@@ -369,20 +395,28 @@ def apply_classifier_identity(config, template, previous, request=""):
             rule = config["mechanics"]["class_rule"]
             values = [rule["class_a_value"], rule["class_b_value"]]
         if spec:
-            labels[feature["name"]] = spec["name"]
+            if not generic_cue(spec["name"], names) or generic_cue(labels.get(feature["name"]), names):
+                labels[feature["name"]] = spec["name"]
         if custom or any(requested[role]):
-            if not spec and labels.get(feature["name"]) in stock["featureLabels"].values():
+            if generic_cue(labels.get(feature["name"]), names) or (not spec and labels.get(feature["name"]) in stock["featureLabels"].values()):
                 labels[feature["name"]] = fallback[role][0]
+            if requested["names"].get(role):
+                labels[feature["name"]] = requested["names"][role]
             for i, value in enumerate(values):
                 explicit = (requested[role] + ["", ""])[i]
                 inferred = (described.get(role, []) + ["", ""])[i]
                 if explicit:
                     labels[value] = explicit
-                elif spec and "values" in spec:
+                elif spec and "values" in spec and not generic_cue(spec["values"][i], names):
                     labels[value] = spec["values"][i]
-                elif labels.get(value) in {*stock["featureLabels"].values(), f"{names[i]} mark",
-                                           "Quiet Surface cue", "Bright Surface cue"}:
+                elif generic_cue(labels.get(value), names) or labels.get(value) in stock["featureLabels"].values():
                     labels[value] = inferred or fallback[role][1][i]
+            if spec:
+                spec["name"] = labels[feature["name"]]
+                if role == "true" and isinstance(theme.get("trueFeature"), str):
+                    theme["trueFeature"] = spec["name"]
+                if role == "spurious" and isinstance(theme["spuriousFeatures"][0], str):
+                    theme["spuriousFeatures"][0] = spec["name"]
             if spec and "values" in spec:
                 spec["values"] = [labels[value] for value in values]
     if custom or labels != stock["featureLabels"]:

@@ -38,6 +38,7 @@ function createRound(config) {
         score:counts, teamNames:t.options, metric:'Spurious Reliance',value:spuriousReliance,spuriousReliance,note:failedAudit?note:state?.note||note,
         legend:['TRUE SIGNAL · '+labels[core],'TRAP · '+labels[shortcut.name]],
         actors:[{slot:0,badge:0,label:t.options[0],station:true},{slot:2,badge:Number(item[core]===m.class_rule.class_b_value),aura:shortcut.values.indexOf(item[shortcut.name]),art:shortcut.values.indexOf(item[shortcut.name]),label:labels[item[core]]+' / '+labels[item[shortcut.name]]},{slot:1,badge:1,label:t.options[1],station:true}],
+        trace:[labels[core],labels[item[core]]],traits:Object.entries(item).map(([k,v])=>[labels[k],labels[v]]),
         subject:Object.entries(item).map(([k,v])=>labels[k]+' · '+labels[v]).join(' / '),
         names:t.options,actions:t.options,submit:state?.submit||'Finish training first', training:!test,
         lanes:t.options,

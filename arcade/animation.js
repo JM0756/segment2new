@@ -1,5 +1,44 @@
 // Actor transforms are shared by diffusion art and the procedural characters.
 const ArcadeHUD = {
+  handlerStyle(theme){
+    const setting=[theme.title,theme.setting,theme.environment?.setting_name,theme.environment?.layout].join(' ');
+    if(/reef|underwater|ocean|subsea|marine|coral|abyss|aquatic/i.test(setting))return 'diver';
+    if(/forest|garden|park|grove|wilderness|ranger/i.test(setting))return 'ranger';
+    if(/detective|investigat|noir|evidence|precinct/i.test(setting))return 'detective';
+    return 'technician';
+  },
+  drawHandler(ctx,x,y,state,style,accent,now){
+    const stride=state.moving?Math.sin(now/(style==='diver'?160:95)):0;
+    ctx.save();ctx.translate(Math.round(x),Math.round(y-Math.abs(stride)*2));ctx.scale(state.facing*2,2);
+    const pixel=(color,x,y,w,h)=>{ctx.fillStyle=color;ctx.fillRect(x,y,w,h);};
+    const ink='#172432',light='#d9ebe5';
+    for(const side of [-1,1]){
+      const foot=Math.round(side*stride);
+      pixel(ink,side*3-2,-5+foot,4,5);pixel(light,side*3-2,-2+foot,style==='diver'?6:4,2);
+    }
+    pixel(ink,-6,-16,12,12);pixel(style==='technician'?light:accent,-5,-15,10,9);
+    pixel(accent,-6,-12,3,6);pixel(ink,2,-10,5,3);
+    pixel(ink,-6,-25,12,10);pixel(accent,-5,-24,10,8);
+    if(style==='diver'){
+      pixel(ink,-8,-16,3,9);pixel(ink,-3,-22,10,5);pixel('#98dfeb',-2,-21,8,3);pixel(light,3,-21,2,1);
+    }else{
+      pixel('#cc9877',-3,-21,8,5);pixel(ink,3,-20,1,2);
+      if(style==='technician')pixel('#84bec9',-3,-21,9,2);
+      else{pixel(style==='ranger'?'#8b7847':'#726582',-8,-23,17,2);pixel(light,-4,-16,3,3);}
+    }
+    ctx.restore();
+  },
+  drawVent(ctx,v,w,h,accent,now){
+    const x=Math.round(v.x*w),y=Math.round(v.y*h);
+    ctx.save();ctx.fillStyle='#243438';ctx.fillRect(x-14,y-4,28,9);
+    ctx.fillStyle=v.active?accent:'#627471';
+    for(let i=-9;i<=9;i+=6)ctx.fillRect(x+i,y-3,2,6);
+    if(v.active)for(let i=0;i<4;i++){
+      const t=(now/850+i/4)%1;
+      ctx.globalAlpha=.6*(1-t);ctx.fillRect(x-9+i*5+t*v.dx*18,y+t*v.dy*18,2,3);
+    }
+    ctx.restore();
+  },
   spawnOpening(now,end){
     const left=end-now;
     return left<=0||left>500?0:Math.min(1,(500-left)/100,left/180);

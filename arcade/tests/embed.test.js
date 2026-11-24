@@ -7,7 +7,7 @@ class Element {
   classList={add(){},remove(){},toggle(){}};
   style={setProperty(){}};
   get childElementCount(){return this.children.length;}
-  append(node){this.children.push(node);}
+  append(...nodes){this.children.push(...nodes);}
   replaceChildren(){this.children=[];}
   getContext(){return this.context;}
   clientWidth=560;clientHeight=245;
@@ -26,7 +26,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       const elements=new Map();
       const imageURLs=[], drawings=[];
       const drawing = {
-        createLinearGradient(){return {addColorStop(){}};},roundRect(){},setTransform(){},save(){},restore(){},strokeRect(){},strokeText(){},rotate(){},scale(){},stroke(){},moveTo(){},lineTo(){},translate(){},ellipse(){},fillText(){},
+        createLinearGradient(){return {addColorStop(){}};},roundRect(){},setTransform(){},save(){},restore(){},strokeRect(){},strokeText(){},rotate(){},scale(){},stroke(){},moveTo(){},lineTo(){},translate(){},ellipse(){},fillText(label){drawings.push(label);},
         measureText(text){return {width:text.length*5};},
         beginPath(){}, arc(){drawings.push('circle');}, fill(){},
         fillRect(){drawings.push(this.fillStyle);},
@@ -57,7 +57,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
           config.theme.class0Sprite='assets/first.png';config.theme.class1Sprite='assets/missing.png';
         }
       }
-      const search = configPath === 'default.json' ? '' : '?config='+encodeURIComponent(configPath);
+      const search = configPath === 'default.json' ? '' : '?config='+encodeURIComponent(configPath)+'&level=2';
       let requested;
       document.getElementById=key=>{const el=document.querySelector(key);el.context=drawing;return el;};
       let frame;
@@ -100,9 +100,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
           arena.clientWidth=width;arena.clientHeight=height;frame(performance.now());
           const layout=vm.runInContext('layout',context);
           assert.equal(layout.uiScale,scale);
-          assert.equal(layout.rightMargin,Math.max(210*scale,width*.24));
-          assert.ok(layout.rightLane*width+46*scale<=width-layout.rightMargin+.001);
-          assert.ok(layout.rightLane>layout.leftLane);
+          assert.equal(vm.runInContext('mapWidth()*layout.uiScale',context),width);
           assert.equal(vm.runInContext('worldWidth*layout.uiScale',context),width);
           assert.equal(arena.width,width*2); // DPR changes resolution independently of layout.
         }
@@ -113,6 +111,12 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       assert.ok(actions.children.every(b=>!/^\[[12]\]/.test(b.textContent)));
       assert.match(actions.children[0].textContent,/Move/);
       const instruction=()=>elements.get('instruction').textContent;
+      const markup=fs.readFileSync(path+'index.html','utf8');
+      assert.match(markup,/<\/header><\/section>\s*<section class="console"/);
+      for(const id of ['phase','objective','itemId','traits','progress','pips','actions','help'])
+        assert.ok(markup.split('<section class="console"')[1].includes('id="'+id+'"'));
+      assert.ok(drawings.includes('SCAN'));
+      for(const prefix of ['01 · ','02 · '])assert.ok(drawings.some(label=>typeof label==='string' && label.startsWith(prefix)));
       const initialScore=read('JSON.stringify(view.score)');
       assert.match(instruction(),/Part 1 · 1\/6/);
       if(configPath!== 'default.json'){
@@ -130,7 +134,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       const center=read('world.structures.checkpoint');
       press('d');tick(3);keyUp({key:'d'});tick(8);
       assert.match(instruction(),/Part 1 · 2\/6/);
-      press('e');assert.match(instruction(),/Part 1 · 3\/6/);
+      click(center.x,center.y);tick(100);assert.match(instruction(),/Part 1 · 3\/6/);
       const clickLeader=side=>{
         const sign=read('signs()')[side];
         click(sign.x,sign.y);tick(100);
@@ -144,22 +148,53 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       elements.get('continue').onclick();assert.match(instruction(),/6\/6/);
       elements.get('continue').onclick();assert.equal(elements.get('guide').hidden,true);
       assert.equal(read('JSON.stringify(view.score)'),initialScore);
+      click(center.x,center.y);tick(100);
+      const long='Pulsing translucent bell fringed with luminous silver tentacles';
+      context.longTrait=long;
+      read("const originalView=round.view.bind(round); round.view=()=>({...originalView(),traits:[['Anatomy',longTrait]]});render()");
+      assert.ok(elements.get('traits').children.some(cell=>cell.children[1].textContent===long));
+      frame(now+=30);assert.ok(!drawings.includes(long));
+      read('round.view=originalView;render()');
       frame(now+=30);
-      press('1');press('2');assert.equal(read('pilot'),null);
+      if(dir!=='Feature-Classifier'){
+        assert.equal(read('escortMode'),false);
+        assert.equal(read('world.hazards.length'),0);
+        assert.doesNotMatch(read("lines.join(' ')"),/tether|Feature-Classifier|Spurious Reliance/i);
+        read("const choices=[];const act=round.act.bind(round);round.act=i=>{choices.push(i);return act(i)}");
+        clickLeader(0);clickLeader(1);assert.deepEqual(Array.from(read('choices')),[0,1]);
+        return;
+      }
+      press('1');press('2');assert.ok(read('pilot.tethered'));
       // Exercise actual keyboard and canvas input against each game's round adapter.
+      await read('start(config,configPath)');frame(now+=30);
       read("const decisions=[]; const act=round.act.bind(round); round.act=i=>{decisions.push(i);return act(i)}");
-      const moveTo=(x,y)=>{read('takeControl()');read(`pilot.walkTo({x:${x},y:${y}})`);tick(140);};
+      const moveTo=(x,y)=>{read(`pilot.walkTo({x:${x},y:${y}})`);tick(140);};
+      if(configPath===generatedPath){
+        const vent=read('world.hazards[0]');
+        moveTo(vent.x,vent.y);assert.match(elements.get('objective').textContent,/Disable vent/);
+        press('e');tick(1);assert.equal(vent.active,false);
+        assert.match(elements.get('objective').textContent,/Enable vent/);
+        press('e');assert.equal(vent.active,true);
+      }else assert.equal(read('world.hazards.length+world.obstacles.length'),0);
       moveTo(.03,.93);press('e');assert.deepEqual(Array.from(read('decisions')),[]);
       assert.equal(read('scanTime'),-Infinity);
-      moveTo(center.x,center.y);press('e');assert.ok(Number.isFinite(read('scanTime')));
+      const emptyBay=read('signs()[0]');moveTo(emptyBay.x,emptyBay.y);press('e');
+      assert.equal(read('decisions.length'),0);
+      assert.deepEqual([read('pilot.specimen().x'),read('pilot.specimen().y')],[center.x,center.y]);
+
       for(const [side,key] of [[0,'e'],[1,'Space']]){
+        moveTo(center.x,center.y);press(' ','Space');assert.ok(read('pilot.tethered'));
+        press('e');assert.ok(read('pilot.traced'));
+        assert.ok(elements.get('traits').children.some(cell=>cell.className==='scan-trace'));
         const target=read('signs()')[side];
         moveTo(target.x,target.y);
+        assert.notEqual(read('pilot.specimen().x'),center.x);
+        assert.notEqual(read('pilot.specimen().x'),read('pilot.pos().x'));
         press(key==='Space'?' ':key,key);
-        assert.ok(read('decisions').includes(side));
+        assert.ok(read('decisions').includes(side));assert.equal(read('pilot.tethered'),false);
       }
       const target=read('signs()')[0],before=read('decisions.length');
-      moveTo(center.x,center.y);click(target.x,target.y);
+      moveTo(center.x,center.y);press('e');click(target.x,target.y);
       assert.equal(read('decisions.length'),before);tick(120);
       assert.equal(read('decisions.length'),before+1);
       await read('start(config,configPath)');frame(now+=30);
@@ -171,7 +206,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
         for(let i=0;i<(dir==='Feature-Classifier'?6:config.mechanics.samples.length);i++){
           const side=dir==='Feature-Classifier'?read(followShortcut?'view.actors[1].aura':'view.actors[1].badge'):
             config.theme.options.indexOf(elements.get('subject').textContent);
-          clickLeader(side);
+          click(center.x,center.y);tick(100);clickLeader(side);
         }
         assert.ok(read('view.field'));
         for(let i=0;i<4;i++)press(' ','Space');

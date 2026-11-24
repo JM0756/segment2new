@@ -124,7 +124,7 @@ class ImageClient:
             reference.save(buffer, format="PNG")
             payload = {
                 "image_size": {"width": 64, "height": 64}, "description": description,
-                "action": "Four-frame in-place walk cycle with a resting pose. Keep the character centered.",
+                "action": "Four-frame in-place motion cycle natural to this subject, including a resting pose. Preserve its silhouette and keep it centered.",
                 "n_frames": 4, "direction": "south", "view": "low top-down",
                 "reference_image": {"type": "base64", "base64": base64.b64encode(buffer.getvalue()).decode("ascii")},
             }
@@ -198,7 +198,7 @@ class ImageClient:
             headers["X-RD-Token"] = self.retro_key
             width, height = (384, 216) if scene else (128, 128)
             if not scene:
-                prompt += ". Centered full-body pixel-art character with a clear silhouette on a solid white background."
+                prompt += ". Centered pixel-art subject with a clear silhouette on a solid white background."
             payload = dict(width=width, height=height, prompt=prompt, num_images=1,
                            prompt_style="rd_plus__environment" if scene else "rd_fast__game_asset")
         elif provider == "pixellab":
@@ -206,9 +206,7 @@ class ImageClient:
             headers["Authorization"] = f"Bearer {self.pixel_key}"
             size = {"width": 320, "height": 180} if scene else {"width": 128, "height": 128}
             if not scene:
-                prompt = ("Standardized blocky 2.5D chibi pixel avatar, square head, compact torso, "
-                          "2px dark outline, full body, transparent background. " +
-                          prompt.replace("pure solid #FFFFFF background", "transparent background"))
+                prompt = prompt.replace("pure solid #FFFFFF background", "transparent background")
             payload = dict(description=prompt, image_size=size, no_background=not scene)
         else:
             endpoint = self.base + "/images/generations"

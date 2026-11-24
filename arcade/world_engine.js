@@ -13,7 +13,7 @@ const WorldEngine = (() => {
     }
     return rows.map(r=>r.join(''));
   }
-  function project(rows,physical,background=false){
+  function project(rows,physical,background=false,tier=1){
     const structures={...physical.structures},obstacles=[];
     // Older saves may contain dense walls. Retain at most two solid perimeter props.
     rows=rows.map(row=>Array.from(row));
@@ -28,28 +28,35 @@ const WorldEngine = (() => {
     for(const [tile,[x,y]] of Object.entries(anchors))rows[y][x]=tile;
     structures.checkpoint={...structures.checkpoint,radius:.075};
     for(const side of ['leftTarget','rightTarget'])structures[side]={...structures[side],width:.12,height:.16};
-    // The right control dock narrows the playable plane. Keep generated-scene props at its outer left edge.
-    const safe=(x,y)=>(background?x===0:(x<4||x>=16)) && landmarks.every(([lx,ly])=>Math.abs(lx-x)>=4 || Math.abs(ly-y)>=3);
-    const candidates=[...cells,[2,9],[17,10]];
-    for(let y=1;y<height-1;y++)candidates.push([background?0:2,y],[17,y]);
+    const safe=(x,y)=>(x>0 && x<width-1 && (x<4||x>=16)) && landmarks.every(([lx,ly])=>Math.abs(lx-x)>=4 || Math.abs(ly-y)>=3);
+    // Generated artwork already contains scenery. Keep authored perimeter solids
+    // there, without manufacturing extra wooden props along the frame.
+    const candidates=[...cells];
+    if(tier>=2 || tier===null && !background){
+      candidates.push([2,9],[17,10]);
+      for(let y=1;y<height-1;y++)candidates.push([2,y],[17,y]);
+    }
     let placed=0;
     for(const [x,y] of candidates){
+      if(tier!==null && tier<2)break;
       if(!'.~'.includes(rows[y][x])||!safe(x,y))continue;
       if(background && rows.slice(Math.max(0,y-2),y+3).some(row=>row[x]==='#'))continue;
       rows[y][x]='#';
-      if(++placed>=Math.min(2,Math.max(1,cells.length)))break;
+      if(++placed>=(tier===null?Math.min(2,Math.max(1,cells.length)):tier===2?1:2))break;
     }
     rows=rows.map(r=>r.join(''));
     rows.forEach((row,y)=>Array.from(row).forEach((tile,x)=>{
       const point=center(y*width+x);
       if(keys[tile])structures[keys[tile]]={...structures[keys[tile]],...point};
       if(tile==='#'){
-        const props=physical.obstacles;
+        const props=physical.obstacles.length?physical.obstacles:[{...point,kind:'boulder'}];
         const nearest=props.reduce((a,b)=>Math.hypot(a.x-point.x,a.y-point.y)<Math.hypot(b.x-point.x,b.y-point.y)?a:b);
         obstacles.push({...nearest,...point,w:1/width,h:1/height});
       }
     }));
-    return {...physical,surface:{...physical.surface,speedMultiplier:1,drag:.9},grid:rows,structures,obstacles};
+    const vents=[{x:7.5/width,y:6.5/height,dx:0,dy:1},{x:13.5/width,y:6.5/height,dx:0,dy:-1}];
+    const hazards=vents.slice(0,Math.max(0,tier-1)).map(v=>({...v,active:true}));
+    return {...physical,hazards,surface:{...physical.surface,speedMultiplier:1,drag:.9},grid:rows,structures,obstacles};
   }
   function path(rows,from,to){
     const start=index(from),end=index(to),queue=[start],prior=new Map([[start,-1]]);
@@ -89,7 +96,34 @@ const WorldEngine = (() => {
   function controller(world,point=world.structures.entry){
     let x=point.x*width,y=point.y*height,vx=0,vy=0,waypoints=[],pending='',facing=1;
     const pos=()=>({x:x/width,y:y/height});
-    return {pos,
+    let tethered=false,traced=false,item={...world.structures.checkpoint};
+    // Follow the handler's traversed path around corners. Retain only the short
+    // length of trail between the specimen and its handler, measured in tiles.
+    const trail=[];
+    const tileDistance=(a,b)=>Math.hypot((a.x-b.x)*width,(a.y-b.y)*height);
+    let trailLength=0;
+    function follow(){
+      const here=pos(),distance=tileDistance(trail.at(-1)||item,here);
+      if(distance<.04)return;
+      trail.push(here);trailLength+=distance;
+      while(trail.length && trailLength>1){
+        const next=trail[0],segment=tileDistance(item,next);
+        const advance=Math.min(trailLength-1,segment);
+        if(advance===segment)item=trail.shift();
+        else{
+          const t=advance/segment;
+          item={x:item.x+t*(next.x-item.x),y:item.y+t*(next.y-item.y)};
+        }
+        trailLength-=advance;
+      }
+    }
+    function release(){
+      tethered=false;traced=false;item={...world.structures.checkpoint};
+      trail.length=0;trailLength=0;
+    }
+    return {pos, specimen:()=>({...item}),get tethered(){return tethered;},get traced(){return traced;},
+      inspect(){if(tethered)traced=true;else tethered=true;},
+      release,
       walkTo(point,interaction=''){waypoints=path(world.grid,pos(),point).slice(1);pending=interaction;vx=vy=0;},
       step(dx,dy,seconds){
         let contact='',moving=false;
@@ -101,16 +135,20 @@ const WorldEngine = (() => {
           if(waypoints.length){
             const wp=waypoints[0];ax=wp.x*width-x;ay=wp.y*height-y;
             const length=Math.hypot(ax,ay);
-            if(length<=speed*tick){x=wp.x*width;y=wp.y*height;waypoints.shift();vx=vy=0;
-              if(!waypoints.length){contact=pending;pending='';}
+            const walkSpeed=Math.min(speed,Math.hypot(vx,vy)+45*tick);
+            if(length<=walkSpeed*tick){x=wp.x*width;y=wp.y*height;waypoints.shift();
+              if(!waypoints.length){contact=pending;pending='';vx=vy=0;}
               continue;}
-            vx=speed*ax/length;vy=speed*ay/length;
+            vx=walkSpeed*ax/length;vy=walkSpeed*ay/length;
           }else{
             const drag=surface.drag**(60*tick),length=Math.hypot(ax,ay)||1;
             vx=drag*vx+(1-drag)*ax/length*speed;vy=drag*vy+(1-drag)*ay/length*speed;
           }
-          if(fits(world.grid,x+vx*tick,y))x+=vx*tick;else vx=0;
-          if(fits(world.grid,x,y+vy*tick))y+=vy*tick;else vy=0;
+          const vent=world.hazards?.find(v=>v.active && Math.hypot(v.x*width-x,v.y*height-y)<1);
+          const stepX=(vx+(vent?.dx||0)*1.4)*tick,stepY=(vy+(vent?.dy||0)*1.4)*tick;
+          if(fits(world.grid,x+stepX,y))x+=stepX;else vx=0;
+          if(fits(world.grid,x,y+stepY))y+=stepY;else vy=0;
+          if(tethered)follow();
           if(Math.abs(vx)>.05)facing=Math.sign(vx);
           moving ||= Math.hypot(vx,vy)>.08;
         }

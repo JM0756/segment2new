@@ -65,3 +65,44 @@ test('all seven maps share foot geometry, landmarks and velocity on both surface
   });
   for(const result of trajectories)assert.deepEqual(result,trajectories[0]);
 });
+
+test('generated scenery does not acquire synthetic props on the left border',()=>{
+  const rows=config.tilemap.map(row=>row.replaceAll('#','.'));
+  rows[2]='#'+rows[2].slice(1);
+  const scene=engine.project(rows,config.world_physics,true);
+  assert.deepEqual(scene.obstacles,[]);
+  assert.ok(scene.grid.every(row=>!row.startsWith('#')));
+});
+
+test('the classifier has open onboarding and collision-safe hazards in later tiers',()=>{
+  const fs=require('node:fs'),path=require('node:path'),base=path.resolve(__dirname,'..');
+  {
+    const name='Feature-Classifier';
+    for(const tier of [1,2,3]){
+      const cfg=require(path.join(base,name,'source',tier===1?'default.json':'level'+tier+'.json'));
+      for(const generated of [false,true]){
+        const map=engine.project(cfg.tilemap,cfg.world_physics,generated,tier);
+        assert.equal(map.obstacles.length,tier-1);assert.equal(map.hazards.length,tier-1);
+        for(const obstacle of map.obstacles){
+          const start={x:obstacle.x-.9/20,y:obstacle.y};
+          const p=engine.controller(map,start);
+          const first=p.step(1,0,.016),second=p.step(1,0,.016);
+          assert.ok(second.x-first.x>first.x-start.x);
+          assert.ok(p.step(0,0,.016).x>second.x);
+          const slide=move(p,1,1,.10);
+          assert.ok(slide.y>start.y && slide.x<=obstacle.x-.69/20);
+        }
+        for(const v of map.hazards){
+          assert.equal(engine.nearby(v,Object.values(map.structures)),null);
+          assert.equal(engine.nearby(v,map.obstacles),null);
+          const pushed=move(engine.controller(map,v),0,0,.25);
+          assert.ok((pushed.y-v.y)*v.dy>0);
+          v.active=false;
+          const still=move(engine.controller(map,v),0,0,.25);
+          assert.equal(still.y,v.y);
+          v.active=true;
+        }
+      }
+    }
+  }
+});

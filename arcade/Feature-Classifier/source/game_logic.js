@@ -14,7 +14,6 @@ const shuffleDeck=typeof module==='undefined'?shuffled:require('../../shuffle.js
       if (spec) featureLabels[feature.name] = typeof spec === 'string' ? spec : spec.name;
       values.forEach((key,i) => {
         if (Array.isArray(spec?.values)) featureLabels[key] = spec.values[i];
-        else if (kind === 'true' && ['Circular seal','Serrated seal'].includes(featureLabels[key])) featureLabels[key] = options[i]+' mark';
       });
     }
     return {...theme, options, featureLabels};
