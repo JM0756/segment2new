@@ -61,7 +61,7 @@ test('background cover crop, tint and sprite blits restore text smoothing',()=>{
   assert.equal(ctx.imageSmoothingEnabled,true);
 });
 
-test('AI-background fixtures stay low and target contact draws a burst and shockwave at the configured zone',()=>{
+test('Target contact draws a pixel burst without glowing zone rings',()=>{
   const world=require('../Feature-Classifier/source/default.json').world_physics;
   const render=(low,gates)=>{
     const ctx=recorder();
@@ -70,9 +70,39 @@ test('AI-background fixtures stay low and target contact draws a burst and shock
   };
   const idle=render(true,[0,0]),contact=render(true,[.5,0]);
   assert.ok(render(false,[0,0]).some(([cmd,color])=>cmd==='fillRect'&&color==='#495e73'));
-  assert.ok(!idle.some(([cmd,color])=>cmd==='fillRect'&&color==='#495e73'));
+
   const z=world.structures.leftTarget;
   const rings=ops=>ops.filter(([cmd,,x,y])=>cmd==='ellipse'&&x===1000*z.x&&y===600*z.y);
-  assert.equal(rings(contact).length,rings(idle).length+1);
+  assert.equal(rings(contact).length,0);assert.equal(rings(idle).length,0);
   assert.equal(contact.filter(([cmd,color,,,w,h])=>cmd==='fillRect'&&color==='#abcded'&&w===3&&h===3).length,8);
+});
+
+test('the entry closes after spawn, and pixel props and inspection add no zone ellipses',()=>{
+  const animation=require('../animation'),world=require('../Feature-Classifier/source/default.json').world_physics;
+  assert.deepEqual([0,150,410,500,700].map(t=>animation.spawnOpening(t,500)),[0,1,.5,0,0]);
+  const render=(part,spawn,scan=0)=>{
+    const ctx=recorder();
+    scenes.drawFixtures(ctx,800,400,world,'classifier','hatch','#abcdef',{spawn,scan,gates:[0,0]},null,false,0,.5,part);
+    return ctx.commands;
+  };
+  const panels=ops=>ops.filter(([name,color])=>name==='fillRect'&&color==='#495e73').map(op=>op[4]);
+  assert.deepEqual(panels(render('entry',0)),[19,19]);assert.deepEqual(panels(render('entry',1)),[4,4]);
+  for(const part of ['checkpoint','leftTarget','rightTarget']){
+    assert.ok(!render(part,0,1).some(([name])=>name==='ellipse'));
+  }
+  const ctx=recorder();
+  scenes.solid(ctx,{kind:'boulder',x:.2,y:.8,w:.05,h:.07},800,400,'#abcdef','grove');
+  assert.ok(ctx.commands.some(([name])=>name==='fillRect'));assert.ok(!ctx.commands.some(([name])=>name==='ellipse'));
+});
+
+test('slippery tiles have no floor artwork and generated scenes omit idle fixtures',()=>{
+  const config=require('../Feature-Classifier/source/level3.json');
+  const world={...config.world_physics,grid:config.tilemap};
+  assert.ok(world.grid.some(row=>row.includes('~')));
+  for(const low of [true,false]){
+    const ctx=recorder();
+    scenes.drawFixtures(ctx,800,450,world,'classifier','hatch','#abcdef',
+      {scan:0,gates:[0,0]},null,low,0,.5,low?undefined:'floor');
+    assert.ok(!ctx.commands.some(([cmd])=>['fillRect','stroke','fillText','drawImage'].includes(cmd)));
+  }
 });

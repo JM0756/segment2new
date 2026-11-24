@@ -1,5 +1,9 @@
 // Actor transforms are shared by diffusion art and the procedural characters.
 const ArcadeHUD = {
+  spawnOpening(now,end){
+    const left=end-now;
+    return left<=0||left>500?0:Math.min(1,(500-left)/100,left/180);
+  },
   structureActivity(now,scanTime,members,lanes){
     const gates=Array(lanes).fill(0);
     for(const member of members){
@@ -7,6 +11,17 @@ const ArcadeHUD = {
       gates[member.side]=Math.max(gates[member.side],1-member.sinceContact/450);
     }
     return {scan:Math.min(1,Math.max(0,1-(now-scanTime)/600)),gates};
+  },
+  stationDepth(station,entries,width,height){
+    const x=station.x*width,y=station.y*height;
+    let depth=y-1;
+    for(const actor of entries){
+      if(Math.abs(actor.x-x)<=Math.max(55,station.width*width/2) &&
+         Math.abs(actor.footY-y)<=Math.max(50,station.height*height/2)){
+        depth=Math.min(depth,actor.footY-1);
+      }
+    }
+    return depth;
   },
   paintByDepth(entries){
     entries.sort((a,b)=>a.footY-b.footY);
@@ -20,9 +35,9 @@ const ArcadeHUD = {
     const walking=mode==='walk', celebrating=mode==='celebrate';
     ctx.save();
     ctx.translate(size/2,size);
-    const bounce=celebrating?Math.abs(wave)*size*.17:walking?Math.abs(wave)*size*.08:0;
+    const bounce=walking?Math.abs(wave)*size*.025:0;
     ctx.translate(0,-bounce);
-    ctx.rotate(walking?wave*.09:0);
+    ctx.rotate(walking||celebrating?wave*.05:0);
     ctx.scale(1,1+(walking?0:.025*wave));
     ctx.translate(-size/2,-size);
     this.drawAvatarIcon(ctx,image,{...spec,frame,stride:walking?Math.round(2*wave):0,blink:frame%16===3},size);
@@ -51,7 +66,7 @@ const ArcadeHUD = {
           const trails=motion.trail(member.approach,age);
           if(sinceContact>=0)trails.push(...motion.trail(member.formation,sinceContact));
           return {...member,...motion.position(path,elapsed),trails,sinceContact,walking,age,
-            size:66-42*Math.min(1,age/(member.approach.duration+member.formation.duration||1))};
+            size:84-60*Math.min(1,age/(member.approach.duration+member.formation.duration||1))};
         });
         return {actors,arrived};
       }
@@ -63,10 +78,10 @@ const ArcadeHUD = {
   pose(time,index,vx,age,feedback,strideTime=time) {
     const step=Math.sin(strideTime/125+index),stride=Math.abs(step),spawn=Math.max(0,1-age/320);
     const t=feedback?Math.max(0,(time-feedback.start)/700):1;
-    const kick=t<1?Math.sin(Math.PI*t):0, jump=feedback?.correct?kick:0;
-    return {dy:-stride*2-jump*13,dx:feedback&&!feedback.correct?Math.sin(t*40)*kick*5:0,
-      tilt:step*Math.PI/45, sx:(vx<0?-1:1)*(1+spawn*.23+jump*.12),sy:1-spawn*.25+jump*.1,
-      shadow:1-stride*.08-jump*.24};
+    const kick=t<1?Math.sin(Math.PI*t):0, flash=feedback?.correct?kick:0;
+    return {dy:-stride*2,dx:feedback&&!feedback.correct?Math.sin(t*40)*kick*5:0,
+      tilt:step*Math.PI/45, sx:(vx<0?-1:1)*(1+spawn*.23+flash*.12),sy:1-spawn*.25+flash*.1,
+      shadow:1-stride*.08};
   },
   drawCallout(ctx,e,now){
     const t=(now-e.start)/700;if(t<0||t>=1)return;

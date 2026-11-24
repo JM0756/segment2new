@@ -25,7 +25,7 @@ test('facing, stride and feedback use distinct transformations',()=>{
   assert.equal(right.sx,-left.sx);assert.ok(right.tilt>0 && right.dy<0);
   const success=hud.pose(310,0,1,500,{start:100,correct:true});
   const miss=hud.pose(310,0,1,500,{start:100,correct:false});
-  assert.ok(success.dy<miss.dy && success.shadow<miss.shadow);
+  assert.equal(success.dy,miss.dy);assert.equal(success.shadow,miss.shadow);
   assert.equal(success.dx,0);assert.notEqual(miss.dx,0);
 });
 
@@ -61,7 +61,9 @@ test('a four-frame sheet uses square source rects at eight FPS and wraps',()=>{
 
 test('footprints detour around a solid on every frame; material changes speed, glide and fading trails',()=>{
   const {checkpoint,leftTarget}=world.structures;
-  const path=motion.route(checkpoint,leftTarget,world),o=world.obstacles[0];
+  const o={...world.obstacles[0],x:.38,y:.48};
+  const blocked={...world,obstacles:[o]};
+  const path=motion.route(checkpoint,leftTarget,blocked);
   assert.ok(path.points.length>2);
   for(let t=0;t<path.duration;t+=2){
     const p=motion.position(path,t);
@@ -80,9 +82,9 @@ test('footprints detour around a solid on every frame; material changes speed, g
 });
 test('active actors and cohort members are drawn together in ground-contact order',()=>{
   const drawn=[];
-  const entries=[[60,'anchor'],[69,'settled'],[35,'incoming'],[54,'walking']];
+  const entries=[[60,'anchor'],[69,'settled'],[35,'incoming'],[54,'walking'],[50,'inspection desk'],[65,'gate frame'],[40,'tree']];
   hud.paintByDepth(entries.map(([footY,id])=>({footY,draw:()=>drawn.push(id)})));
-  assert.deepEqual(drawn,['incoming','walking','anchor','settled']);
+  assert.deepEqual(drawn,['incoming','tree','inspection desk','walking','anchor','gate frame','settled']);
 });
 
 test('inspection pulses decay and only the receiving class gate opens on arrival',()=>{
@@ -94,4 +96,10 @@ test('inspection pulses decay and only the receiving class gate opens on arrival
   const contact=cohort.frame(100,2).actors[0].approach.duration+100;
   assert.deepEqual(state(contact+.01).gates.map(x=>Math.round(x)),[0,1]);
   assert.deepEqual(state(contact+600),{scan:0,gates:[0,0]});
+});
+
+test('station representatives and approaching specimens paint over the target door',()=>{
+  const station=world.structures.leftTarget,x=station.x*800,y=station.y*400;
+  const actors=[{x,footY:y},{x:x+5,footY:y-28}];
+  assert.ok(hud.stationDepth(station,actors,800,400)<Math.min(...actors.map(a=>a.footY)));
 });

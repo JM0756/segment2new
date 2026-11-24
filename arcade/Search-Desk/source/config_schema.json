@@ -255,6 +255,15 @@
     },
     "world_physics": {
       "$ref": "../../world_physics.schema.json"
+    },
+    "tilemap": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {
+        "type": "string",
+        "pattern": "^[.#?~LRS]{20}$"
+      }
     }
   },
   "required": [

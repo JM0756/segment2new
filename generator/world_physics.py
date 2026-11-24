@@ -60,8 +60,8 @@ def default_world(config, level=1, description=""):
                 structures=dict(entry=dict(x=.5,y=.22,style=style,label=env.get("setting_name") or "Entry"),
                                 checkpoint=dict(x=.5,y=.5,radius=.06,style=scanner,reaction=reaction),
                                 leftTarget=zone(.24),rightTarget=zone(.76)),
-                obstacles=[dict(id="west",x=.38,y=.48,w=.055,h=.08,kind=kind),
-                           dict(id="east",x=.64,y=.62+.025*level,w=.06,h=.07,kind=kind)])
+                obstacles=[dict(id="west",x=.125,y=.79,w=.055,h=.08,kind=kind),
+                           dict(id="east",x=.875,y=.72+.025*level,w=.06,h=.07,kind=kind)])
 
 
 def geometry_error(world):

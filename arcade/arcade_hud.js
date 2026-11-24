@@ -7,10 +7,51 @@ if(continuing){
   const address=new URL(location.href);
   address.searchParams.delete('transition');history.replaceState(null,'',address);
 }
+const lastLevel=Number(params.get('lastLevel')||3);
 const tutorialMode=params.get('mode')==='tutorial';
 let reported=false, passed=false, guideStep=-1, lines=[], practiceActors=[];
 let cohort,world,lowProfile,hover=null;
-const entryPaths=new Map();
+const entryPaths=new Map(),held=new Set();
+let savedPilot=null,land,spawnUntil=-Infinity;
+const floorTop=()=>worldHeight*(lowProfile ? .48 : .42), floorHeight=()=>worldHeight*(lowProfile ? .28 : .53);
+let pilot=null,frameTime=0,track=[],lastMark=0;
+const movement={a:[-1,0],d:[1,0],w:[0,-1],s:[0,1],arrowleft:[-1,0],arrowright:[1,0],arrowup:[0,-1],arrowdown:[0,1]};
+function takeControl(){
+  if(guideStep>2 || guideStep<0&&(view.field||view.done) || !world.grid)return false;
+  if(!pilot){
+    const hit=hits.find(h=>!h.station),p=hit?{x:hit.x/mapWidth(),y:(hit.y+11)/floorHeight()}:world.structures.entry;
+    pilot=WorldEngine.controller(world,p);
+  }
+  return true;
+}
+function signs(){
+  const choices=guideStep>=0?practiceActors.slice(0,2).map(a=>a.label):view.actions;
+  return choices.map((label,i)=>{
+    const side=i%2,z=ArcadeWorld.zone(world,side);
+    const count=Math.ceil((choices.length-side)/2);
+    return {x:z.x,y:count===1?z.y:.22+.60*Math.floor(i/2)/(count-1),label,index:i};
+  });
+}
+function inspectHere(){
+  scanTime=performance.now();
+  if(guideStep>=0)guideInput('inspect');
+  else if(round.inspect)action(()=>round.inspect(),true);
+}
+function interactHere(space=false){
+  if(guideStep>=3){if(space)submit();return;}
+  if(guideStep<0 && (view.done||view.field)){if(space)submit();return;}
+  if(!takeControl())return;
+  const pos=pilot.pos(),side=WorldEngine.sideAt(pos.x);
+  if(space && guideStep<0 && !view.training&&!view.instant){submit();return;}
+  const landmarks=signs(),atLeader=landmarks.find(s=>Math.hypot((s.x-pos.x)*20,(s.y-pos.y)*12)<1.25);
+  if(side!==null||atLeader){
+    const options=atLeader?[atLeader]:landmarks.filter(s=>s.index%2===side);
+    if(!options.length)return;
+    const nearest=options.reduce((a,b)=>Math.abs(a.y-pos.y)<=Math.abs(b.y-pos.y)?a:b);
+    if(guideStep>=0){guideInput('classify');held.clear();}
+    else choose(nearest.index);
+  }else if(!space)inspectHere();
+}
 let scanTime=-Infinity;
 let feedback=null, pulse=0, arrival=0, origin, hits=[];
 const canvas=$('arena'),ctx=canvas.getContext('2d');
@@ -24,15 +65,16 @@ function action(fn, inspection=false) {
   if(!round)return;
   const last=view.target;
   const outcome=fn();pulse=performance.now();
-  if(inspection || outcome?.destination!==undefined || view.field)scanTime=pulse;
+  if(inspection)scanTime=pulse;
+  if(outcome?.destination!==undefined)scanTime=-Infinity;
   if(outcome?.destination!==undefined){
     const actor=view.actors[outcome.actor], hit=hits[outcome.actor];
-    cohort.add(actor,outcome.destination,outcome.correct,pulse,(hit?.x??mapWidth()/2)/mapWidth(),((hit?.y??worldHeight/2)+11)/worldHeight);
+    cohort.add(actor,outcome.destination,outcome.correct,pulse,(hit?.x??mapWidth()/2)/mapWidth(),((hit?.y??floorHeight()/2)+11)/floorHeight());
     feedback=null;
   }else if(outcome && hits[outcome.actor])feedback=ArcadeHUD.spawnCallout(hits[outcome.actor],outcome,pulse);
   view=round.view();
   if(last!==view.target){
-    arrival=pulse;entryPaths.clear();
+    arrival=pulse;spawnUntil=view.field?-Infinity:pulse+500;entryPaths.clear();pilot=null;track=[];hits=[];
     if(feedback)feedback.detached=true; // Keep the callout at the previous sample, but show the new cues immediately.
   }
   if(!view.done){passed=false;reported=false;}
@@ -53,12 +95,7 @@ function report(type,won,accuracy){
 function guideInput(key){
   const next=ArcadeNarrator.next(guideStep,key);
   if(next===guideStep)return;
-  if(typeof key==='number'&&hits[key]){
-    const response={actor:key,correct:true,text:key===0?'FIRST EXAMPLE':'SECOND EXAMPLE'};
-    feedback=ArcadeHUD.spawnCallout(hits[key],response,performance.now());
-  }
   guideStep=next;
-  if(guideStep===3&&tutorialMode&&!passed){passed=true;report('ARCADE_PROGRESS',true,100);}
   render();
 }
 function choose(i){
@@ -66,12 +103,12 @@ function choose(i){
   if(!view.done&&!view.locked&&!view.field)action(()=>round.act(i));
 }
 function submit(){
-  if(guideStep===0)guideInput('continue');
-  else if(guideStep===3)finishGuide();
+  if(guideStep===5)finishGuide();
+  else if(guideStep>=0)guideInput('continue');
   else if(guideStep<0&&!view.done)action(()=>round.submit());
 }
 function advance(){
-  if(!passed || tier>=3)return;
+  if(!passed || tier>=lastLevel)return;
   if(params.has('mode')){
     report('ARCADE_NEXT',true,tutorialMode?100:view.accuracy);
     return;
@@ -83,7 +120,8 @@ function advance(){
 }
 function finishGuide(){
   if(tutorialMode){passed=true;report('ARCADE_PROGRESS',true,100);advance();return;}
-  guideStep=-1;feedback=null;arrival=performance.now();render();
+  guideStep=-1;pilot=savedPilot;savedPilot=null;held.clear();hits=[];track=[];entryPaths.clear();
+  feedback=null;arrival=performance.now();spawnUntil=pilot||view.field?-Infinity:arrival+500;render();
 }
 function render() {
   view=round.view();
@@ -100,32 +138,27 @@ function render() {
   $('meter').style.setProperty('--value',view.value+'%');
   $('guide').hidden=!guided;
   $('instruction').textContent=guided?lines[guideStep]:'';
-  $('continue').disabled=guideStep===1||guideStep===2;
-  $('continue').textContent=guideStep===3?'PLAY THE GAME ▶':'NEXT >>';
-  $('skip').hidden=guideStep===3;
+  $('continue').disabled=guideStep<3;
+  $('continue').textContent=guideStep===5?'PLAY THE GAME ▶':'NEXT >>';
+  $('skip').hidden=guideStep===5;
   $('help').hidden=guided;
   $('callout').classList.toggle('field-verdict',Boolean(!guided&&view.verdict));
   $('callout').textContent=guided?'':view.auditAvailable?'Model Audit · Which feature should the model prune?':view.success?view.note+' · '+(view.stars||3)+' stars':view.note;
   $('actions').replaceChildren();
-  const actions=guideStep===3?[]:guided?view.actions.slice(0,2):view.actions;
-  actions.forEach((label,i)=>{
-    const key='['+(i+1)+']';
-    const b=button(guided?key:key+' '+label,()=>choose(i));
-    if(guided)b.setAttribute('aria-label',key+' '+label);
-    b.disabled=guided?guideStep!==i+1:view.done||view.locked||view.field;
-    b.setAttribute('aria-pressed',String(view.picks?.includes(i)||view.selected===i));
-    if(i<2)ArcadeHUD.drawAvatarIcon(b,images[i],{theme:config.theme,slot:i},32);
-    $('actions').append(b);
-  });
-
+  const move=document.createElement('span');move.textContent='[W A S D] / [Arrows] Move';
+  $('actions').append(move,button('[E] Inspect / Classify Here',()=>interactHere()));
+  const dialog=$('modelAudit');
+  if(dialog.open && (guided||!view.auditAvailable))dialog.close();
   if(!guided){
-    if(!view.instant){const trigger=button('[SPACE] '+view.submit,submit);trigger.disabled=Boolean(view.done||view.training);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
-    if(passed&&tier<3)$('actions').append(button('Next Level →',advance));
+    if(!view.instant&&!view.training){const trigger=button('[SPACE] '+(view.field&&view.completed===0?'Launch Field Test':view.submit),()=>interactHere(true));trigger.disabled=Boolean(view.done||view.training);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
+    if(passed&&tier<lastLevel)$('actions').append(button('Next Level →',advance));
     if(view.auditAvailable){
+      $('auditChoices').replaceChildren();
       ['true','spurious'].forEach((role,i)=>{
         const label=(i?'Prune Spurious Cue · ':'Prune True Feature · ')+view.auditChoices[i];
-        $('actions').append(button(label,()=>{reported=false;action(()=>round.audit(role));}));
+        $('auditChoices').append(button(label,()=>{reported=false;action(()=>round.audit(role));}));
       });
+      if(!dialog.open)dialog.showModal();
     }
     if(view.done)$('actions').append(button('Replay',()=>start(config,configPath)));
   }
@@ -220,8 +253,9 @@ function drawCounts(arrived,w,h){
   });
 }
 function contactShadow(x,y,r){
-  ctx.fillStyle='rgba(0,0,0,0.42)';
-  ctx.beginPath();ctx.ellipse(x,y,r,Math.max(2,r*.27),0,0,Math.PI*2);ctx.fill();
+  ctx.save();ctx.shadowColor='rgba(0,0,0,.35)';ctx.shadowBlur=3;
+  ctx.fillStyle='rgba(0,0,0,0.32)';
+  ctx.beginPath();ctx.ellipse(x,y,r,Math.max(2,r*.27),0,0,Math.PI*2);ctx.fill();ctx.restore();
 }
 let style,accent;
 function rimLight(){
@@ -230,12 +264,30 @@ function rimLight(){
 function paint(now){
   requestAnimationFrame(paint);if(!round)return;
   resizeCanvas();
-  const w=worldWidth,h=worldHeight;
+  const w=worldWidth,h=floorHeight();
   ctx.save();
   if(feedback&&now-feedback.start>=700)feedback=null;
-  const zoom=Math.max(w/scenery.width,h/scenery.height);
+  const zoom=Math.max(w/scenery.width,worldHeight/scenery.height);
   const sw=scenery.width*zoom,sh=scenery.height*zoom;
-  ArcadeEnvironment.blit(ctx,scenery,(w-sw)/2,(h-sh)/2,sw,sh);
+  ArcadeEnvironment.blit(ctx,scenery,(w-sw)/2,(worldHeight-sh)/2,sw,sh);
+  if(land)ArcadeEnvironment.blit(ctx,land,0,0,w,worldHeight);
+  ctx.translate(0,floorTop());
+  let driven=null;
+  if(pilot && (guideStep>=0 || !view.field && !view.done)){
+    let dx=0,dy=0;
+    for(const key of held){dx+=movement[key][0];dy+=movement[key][1];}
+    driven=pilot.step(Math.sign(dx),Math.sign(dy),(now-frameTime)/1000);
+    if(guideStep===0 && driven.moving)guideInput('move');
+    if(driven.contact==='inspect')inspectHere();
+    if(driven.contact==='interact'){
+      interactHere();
+      if(!pilot)driven=null;
+    }
+    if(driven?.moving && now-lastMark>=55){
+      track.push({...driven,time:now,step:Math.floor(now/55)});lastMark=now;
+    }
+  }
+  frameTime=now;
   const actors=guideStep>=0?practiceActors:view.actors||view.names.slice(0,2).map((label,slot)=>({slot,label}));
   const playWidth=layout.playableWidth/layout.uiScale;
   const columns=Math.min(actors.length,Math.max(1,Math.floor(playWidth/85)));
@@ -244,12 +296,14 @@ function paint(now){
   const lanes=view.lanes?.length||2;
   const group=cohort.frame(now,lanes);
   const entries=[], trails=[];
+  const controlled=actors.findIndex(a=>!a.station);
+  let doorwayMotion=0;
   hits=[];
   actors.forEach((actor,i)=>{
     const effect=feedback?.actor===i&&!feedback.detached?feedback:null;
     const {slot,station}=effect?.entity||actor;
     const vx=station?0:(i%2?-1:1),age=Math.max(0,now-arrival);
-    const inLane=view.lanes && guideStep<0 && actors.some(a=>a.station);
+    const inLane=actors.some(a=>a.station);
     const row=Math.floor(i/columns),rowSize=Math.min(columns,actors.length-row*columns);
     const z=ArcadeWorld.zone(world,slot);
     const dest={x:station?z.x:actors.length===1||inLane?checkpoint.x:((i%columns)+.5)/rowSize*.86,
@@ -270,42 +324,61 @@ function paint(now){
       elapsed=elapsed%period;
       if(cycle%2)path=paths.back;
     }
-    const point=ArcadeWorld.position(path,elapsed);
-    const atCheckpoint=!station && guideStep<0 && Math.hypot(point.x-checkpoint.x,point.y-checkpoint.y)<=checkpoint.radius;
-    if(atCheckpoint&&!paths.atCheckpoint)scanTime=now;
-    paths.atCheckpoint=atCheckpoint;
-    if(!station&&guideStep<0)trails.push(...ArcadeWorld.trail(path,elapsed));
+    const manual=i===controlled && driven;
+    const point=manual||ArcadeWorld.position(path,elapsed);
+    if(!station && guideStep<0 && !view.field && (manual?manual.moving:age<path.duration)){
+      const distance=Math.hypot((point.x-door.x)*20,(point.y-door.y)*12);
+      doorwayMotion=Math.max(doorwayMotion,Math.min(1,Math.max(0,2-distance)));
+    }
+    if(!manual&&!station&&guideStep<0)trails.push(...ArcadeWorld.trail(path,elapsed));
     const x=effect?.x??point.x*mw,y=effect?.y??(point.y*h-11);
     hits[i]={x,y,...actor};
-    entries.push({footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,vx,!station&&guideStep<0&&elapsed<path.duration,inLane,rowSize)});
+    entries.push({x,footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,manual?manual.facing:vx,manual?manual.moving:!station&&guideStep<0&&elapsed<path.duration,inLane,rowSize)});
   });
   if(guideStep<0){
     for(const member of group.actors){
       trails.push(...member.trails);
-      entries.push({footY:member.y*h,draw:()=>drawMember(member,now,mw,h)});
+      entries.push({x:member.x*mw,footY:member.y*h,draw:()=>drawMember(member,now,mw,h)});
     }
   }
-  for(const o of world.obstacles)entries.push({footY:(o.y+o.h/2)*h,draw:()=>ArcadeEnvironment.solid(ctx,o,mw,h,accent)});
+  for(const o of world.obstacles)entries.push({footY:(o.y+o.h/2)*h,draw:()=>ArcadeEnvironment.solid(ctx,o,mw,h,accent,style)});
+  track=track.filter(m=>now-m.time<450);
+  for(const m of track)ArcadeEnvironment.drawTrail(ctx,[{...m,alpha:1-(now-m.time)/450}],WorldEngine.surfaceAt(world,m),mw,h);
   ArcadeEnvironment.drawTrail(ctx,trails,world.surface,mw,h);
   const activity=ArcadeHUD.structureActivity(now,scanTime,group.actors,lanes);
+  activity.spawn=ArcadeHUD.spawnOpening(now,spawnUntil)*doorwayMotion;
   const cutoff=view.range?view.range[0]/(view.range[1]||1):.5;
-  ArcadeEnvironment.drawFixtures(ctx,mw,h,world,config.archetype,style,accent,activity,hover,lowProfile,now,cutoff);
+  const fixture=part=>ArcadeEnvironment.drawFixtures(ctx,mw,h,world,config.archetype,style,accent,activity,hover,lowProfile,now,cutoff,part);
+  fixture('floor');
+  for(const [part,structure] of Object.entries(world.structures)){
+    const gate=part==='leftTarget'||part==='rightTarget';
+    const footY=gate?ArcadeHUD.stationDepth(structure,entries,mw,h):structure.y*h-1;
+    entries.push({footY,draw:()=>fixture(part)});
+  }
+
   ArcadeHUD.paintByDepth(entries);
-  if(!lowProfile)ArcadeEnvironment.foreground(ctx,w,h,style,accent);
+
+  if(!view.field && !view.actors?.some(a=>a.station) && guideStep<0){
+    ctx.save();ctx.font='bold 12px sans-serif';ctx.textAlign='center';
+    for(const sign of signs()){
+      const x=sign.x*mw,y=sign.y*h,width=Math.min(mw*.28,ctx.measureText(sign.label).width+12);
+      ctx.fillStyle='#443a32';ctx.fillRect(x-width/2,y-10,width,17);ctx.fillStyle='#fff4cf';ctx.fillText(sign.label,x,y+3,width-5);
+    }
+    ctx.restore();
+  }
   if(view.lanes && guideStep<0)drawCounts(group.arrived,mw,h);
   if(feedback)ArcadeHUD.drawCallout(ctx,feedback,now);
   ctx.restore();
+  if(!lowProfile)ArcadeEnvironment.foreground(ctx,w,worldHeight,config.theme);
 
   function drawActor(actor,i,effect,x,y,age,vx,walking,inLane,rowSize){
     const {slot,label}=effect?.entity||actor;
-    if(guideStep===i+1){
-      ctx.strokeStyle='#ffe18c';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(x,y+10,22,7,0,0,2*Math.PI);ctx.stroke();
-    }
     const entity=effect?.entity||actor;
-    if(entity.aura!==undefined){
-      const pulse=(entity.aura?3:1)*Math.sin(now/(entity.aura?100:400));
-      ctx.strokeStyle=entity.aura?'#ffa95e':'#7bdcf2';ctx.lineWidth=2;
-      ctx.beginPath();ctx.ellipse(x,y-4,19+pulse,22+pulse,0,0,Math.PI*2);ctx.stroke();
+    if(!entity.station && entity.aura!==undefined){
+      const blink=.5+.5*Math.sin(now/(entity.aura?100:400));
+      ctx.fillStyle=entity.aura?'#ffac60':'#89e3ed';
+      ctx.fillRect(x-22,y-24,3,3);
+      if(entity.aura||blink>.5)ctx.fillRect(x-18,y-28,2,2);
     }
     const pose=ArcadeHUD.pose(now,i,vx,age,effect,walking?strideTime(now):now);
     contactShadow(x,y+11,14*pose.shadow);
@@ -313,10 +386,17 @@ function paint(now){
     rimLight();
     const art=(effect?.entity||actor).art??slot;
     const image=images[art],framed=image?.naturalHeight===128;
-    const size=66;
+    const size=84;
     ctx.translate(-size/2,-size*(framed?116/128:1));
     ArcadeHUD.drawEntitySprite(ctx,image,{theme:config.theme,slot:art},size,strideTime(now),passed?'celebrate':walking?'walk':'idle');
     ctx.restore();
+    if(!entity.station && now-scanTime<750 && view.legend){
+      ctx.save();ctx.font='bold 11px sans-serif';ctx.textAlign='center';
+      const by=y-70-4*Math.sin(Math.PI*Math.max(0,now-scanTime)/750);
+      const cue=view.legend.join(' / '),bw=Math.min(playWidth*.75,ctx.measureText(cue).width+12);
+      const bx=Math.min(playWidth-bw/2,Math.max(bw/2,x));
+      ctx.fillStyle='#192d3a';ctx.fillRect(bx-bw/2,by-12,bw,17);ctx.fillStyle='#fff2bb';ctx.fillText(cue,bx,by,bw-6);ctx.restore();
+    }
     if(entity.badge!==undefined){
       ctx.save();ctx.translate(x+10,y-4+pose.dy);ctx.fillStyle='#fff1bc';ctx.strokeStyle='#152737';ctx.lineWidth=2;
       ctx.beginPath();
@@ -369,8 +449,9 @@ async function start(data,path){
     physical=ArcadeWorld.forLegacyConfig(data,baseline.world_physics,materials);
   }
   if(id!==generation)return;
-  world=physical;lowProfile=Boolean(data.theme.backgroundImage||background?.naturalWidth);hover=null;entryPaths.clear();
-  scenery=document.createElement('canvas');scenery.width=560;scenery.height=245;
+  lowProfile=Boolean(background?.naturalWidth);
+  world=WorldEngine.project(data.tilemap||WorldEngine.legacyMap(physical,tier),physical,lowProfile);pilot=null;held.clear();track=[];frameTime=performance.now();hover=null;entryPaths.clear();
+  scenery=document.createElement('canvas');scenery.width=background?.naturalWidth||560;scenery.height=background?.naturalHeight||245;
   const painter=scenery.getContext('2d');
   if(background?.naturalWidth)ArcadeEnvironment.backdrop(painter,scenery.width,scenery.height,background);
   else ArcadeEnvironment.drawArenaBackground(painter,scenery.width,scenery.height,data.theme);
@@ -379,46 +460,65 @@ async function start(data,path){
   shade.addColorStop(1,'rgba(7,13,28,.24)');painter.fillStyle=shade;
   painter.fillRect(0,0,scenery.width,scenery.height);
   style=ArcadeEnvironment.structureStyle(data.theme);
+  if(lowProfile){
+    const props=(data.theme.environment?.props||[]).filter(p=>['trees','barrels','crates'].includes(p));
+    world.obstacles.forEach((obstacle,i)=>{
+      obstacle.sceneryProp=props.length ? props[i%props.length] : (world.surface.type==='grass'?'trees':'crates');
+    });
+  }
   accent=data.theme.environment?.accent_color||data.theme.accent||'#84dacc';
-  scanTime=-Infinity;
+  land=null;
+  if(!lowProfile){
+    land=document.createElement('canvas');land.width=560;land.height=300;
+    ArcadeEnvironment.ground(land.getContext('2d'),land.width,land.height,data.theme);
+  }
+  scanTime=-Infinity;savedPilot=null;
   reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort(world);round=withFieldTest(createRound(data));arrival=performance.now();
-  lines=ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data);guideStep=continuing?-1:0;continuing=false;
+  lines=ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data).map(a=>({...a,station:true}));
+  practiceActors.push({...practiceActors[0],station:false,slot:2,art:0});guideStep=continuing?-1:0;continuing=false;spawnUntil=guideStep<0?arrival+500:-Infinity;
   $('sources').replaceChildren();render();emit('start');
 }
-function canvasTarget(e){
+function pointerDestination(e){
   if(!round||!layout)return null;
-  const b=canvas.getBoundingClientRect(),x=(e.clientX-b.left)*worldWidth/b.width,y=(e.clientY-b.top)*worldHeight/b.height;
-  const target=ArcadeWorld.targetAt(world,{x:x/mapWidth(),y:y/worldHeight});
-  if(target!==null)return target;
-  const hit=hits.find(h=>Math.abs(x-h.x)<25 && y>=h.y-48 && y<=h.y+11);
-  return hit?(guideStep>=0||hit.station?hit.slot:'checkpoint'):null;
+  const b=canvas.getBoundingClientRect(),x=(e.clientX-b.left)*worldWidth/b.width,y=(e.clientY-b.top)*worldHeight/b.height-floorTop();
+  const coord={x:x/mapWidth(),y:y/floorHeight()};
+  const hit=hits.find(h=>Math.abs(x-h.x)<25 && y>=h.y-50 && y<=h.y+11);
+  const sign=signs().find(s=>Math.abs(x-s.x*mapWidth())<Math.max(25,mapWidth()*.055) && Math.abs(y-s.y*floorHeight())<25);
+  if(sign)return {point:sign,action:'interact'};
+  if(hit && !hit.station)return {point:{x:hit.x/mapWidth(),y:(hit.y+11)/floorHeight()},action:'inspect'};
+  if(hit?.station)return {point:ArcadeWorld.zone(world,hit.slot),action:'interact'};
+  if(coord.y<0||coord.y>=1||coord.x<0||coord.x>=1)return null;
+  const target=ArcadeWorld.targetAt(world,coord);
+  return {point:target==='checkpoint'?world.structures.checkpoint:coord,action:target==='checkpoint'?'inspect':target===null?'':'interact'};
 }
-canvas.onpointermove=e=>{hover=canvasTarget(e);canvas.style.cursor=hover===null?'default':'pointer';};
-canvas.onpointerleave=()=>{hover=null;canvas.style.cursor='default';};
+canvas.onpointermove=e=>{canvas.style.cursor=pointerDestination(e)?'pointer':'default';};
 canvas.onclick=e=>{
-  const target=canvasTarget(e);
-  if(typeof target==='number')choose(target);
-  if(target==='checkpoint'){
-    scanTime=performance.now();
-    if(guideStep>=0||view.field||view.selected!=null||(!view.training&&!view.instant&&!round.inspect))submit();
-    else if(round.inspect)action(()=>round.inspect(),true);
-  }
+  const dest=pointerDestination(e);
+  if(dest&&takeControl()){canvas.focus();pilot.walkTo(dest.point,dest.action);}
 };
-function showGuide(){feedback=null;guideStep=0;emit('hint_shown');render();}
+function showGuide(){
+  if(guideStep<0)savedPilot=pilot;
+  pilot=null;feedback=null;held.clear();hits=[];track=[];guideStep=0;spawnUntil=-Infinity;emit('hint_shown');render();
+}
 $('help').onclick=showGuide;
-$('continue').onclick=()=>guideStep===3?finishGuide():guideInput('continue');
+$('continue').onclick=submit;
 $('skip').onclick=finishGuide;
 $('slider').oninput=e=>action(()=>round.tune(Number(e.target.value)));
 window.addEventListener('keydown',e=>{
   if(!round)return;
-  if(e.repeat){if(e.code==='Space')e.preventDefault();return;}
   if(e.target.matches('input'))return;
+  if(e.key==='?'&&!e.repeat){showGuide();return;}
+  if($('modelAudit').open)return;
+  const key=e.key.toLowerCase();
+  if(movement[key]&&takeControl()){e.preventDefault();canvas.focus();held.add(key);return;}
+  if(e.repeat){if(e.code==='Space')e.preventDefault();return;}
   if(e.code==='Space'&&e.target.matches('button')&&!e.target.classList.contains('field-trigger'))return;
-  if(e.key==='?'){showGuide();return;}
-  if(e.code==='Space'){e.preventDefault();submit();return;}
-  const n=/^[1-9]$/.test(e.key)?Number(e.key)-1:({ArrowLeft:0,ArrowRight:1})[e.key];
-  if(n!==undefined && n<view.actions.length){e.preventDefault();choose(n);}
+  if(e.code==='Space'){e.preventDefault();interactHere(true);return;}
+  if(key==='e'){e.preventDefault();interactHere();}
+
 });
+window.addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));
+window.addEventListener('blur',()=>held.clear());
 window.addEventListener('message',e=>{
   if(parent===window||e.source!==parent||e.data?.type!=='LOAD_CONFIG'||origin&&e.origin!==origin)return;
   origin=e.origin;start(e.data.config,configPath);

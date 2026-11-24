@@ -34,12 +34,20 @@ const ArcadeNarrator = {
       case 'reward':why=['Try the first weights and compare route scores.','Try the second weights. The robot follows the largest reward.'];break;
       default:why=['Inspect the first source. Rank it by how well it answers the question.','Compare the second source. A matching word alone does not make it relevant.'];
     }
-    const custom=config.archetype==='classifier'&&(t.class0||t.class1||t.trueFeature||t.spuriousFeatures);
-    const intro=custom?t.title:t.setting;
-    return [intro+' Meet '+first+' and '+second+'.','[1] '+why[0],'[2] '+why[1],'Ready to play. Use what you practiced in the arena.'];
+    const classifier=config.archetype==='classifier',sorter=config.archetype==='sorter';
+    const inspect=classifier?why[0]+' '+why[1]:why[0];
+    return [
+      'Part 1 · 1/6 · Move. In '+t.title+', use WASD or the arrow keys to walk around props. You can also click the floor. Try a few steps.',
+      'Part 1 · 2/6 · Inspect. Approach the specimen at the center, then press E or click it to examine its cues. '+inspect,
+      'Part 1 · 3/6 · Classify. Walk to the left or right leader and press E or Space. Clicking a leader walks you there. Practice now. After training, Space starts the Field Test.',
+      'Part 2 · 4/6 · Signals and shortcuts. '+(classifier?inspect:why.join(' '))+' A classifier learns from your decisions. An outfit or a patch of static can predict a class in training by coincidence.',
+      'Part 2 · 5/6 · Counter-examples. Look for a familiar identity with an unusual surface cue. Correctly labeling these exceptions helps the model generalize as Levels 2 and 3 change the environment.',
+      'Part 2 · 6/6 · Test the model. '+(classifier?'The Spurious Reliance bar rises when you mislabel counter-examples. ':sorter?'Compare field accuracy with your training decisions. ':'Compare your decisions with the field results. In Feature-Classifier, watch the Spurious Reliance bar. ')+'If a shortcut causes a failed Field Test, Model Audit lets you prune the misleading cue and retry for two stars. Removing the true signal loses the audit.'
+    ];
   },
-  next(step,input) {
-    return (step===0&&input==='continue')||(step===1&&input===0)||(step===2&&input===1)?step+1:step;
+  next(step,input){
+    const expected=['move','inspect','classify','continue','continue'];
+    return step>=0 && step<5 && expected[step]===input?step+1:step;
   }
 };
 if(typeof module!=='undefined')module.exports=ArcadeNarrator;

@@ -60,14 +60,14 @@ export IMAGE_PROVIDER="auto"
 python generator/generate.py --archetype Feature-Classifier --topic "Overfitting" --theme "Deep space" --generate-sprites --regenerate-level 2
 ```
 
-Studio and the CLI load the repository-root `.env` and give existing shell variables precedence. Restart Studio after editing the file. With the default `IMAGE_PROVIDER=auto`, each requested asset uses the first available provider in this order.
+Studio loads the repository-root `.env` at startup. The image client reloads it before selecting providers, and file values override shell values. With the default `IMAGE_PROVIDER=auto`, each requested asset uses the first available provider in this order.
 
 1. Retro Diffusion uses `RETRODIFFUSION_API_KEY` for 128×128 characters and 384×216 backgrounds.
 2. PixelLab Pixflux uses `PIXELLAB_API_KEY`. Set `PIXELLAB_BASE_URL` to override its v1 API base.
 3. Cloudflare diffusion uses the FreeLLMAPI image gateway. Set `IMAGE_BASE_URL` and `IMAGE_API_KEY` to override the text gateway URL and key. The default `IMAGE_MODEL` is `@cf/black-forest-labs/flux-1-schnell`.
 4. The arcade draws a procedural character or environment if all requests for that asset fail.
 
-Set `IMAGE_PROVIDER` to `retrodiffusion`, `pixellab`, or `cloudflare` to start at that provider. The generation log and each level’s metadata record asset sources under `asset_providers`. For optional four-frame character animation with PixelLab, set `ENABLE_ANIMATED_SPRITES=true` or send `"animated_sprites": true` to the Studio generation or refinement API. A failed animation request keeps the static sprite.
+Set `IMAGE_PROVIDER=retrodiffusion` to use Retro Diffusion exclusively, including when a request fails. This also disables PixelLab animation. Set `IMAGE_PROVIDER` to `pixellab` or `cloudflare` to start at that provider. The generation log and each level’s metadata record asset sources under `asset_providers` and failed attempts under `provider_errors`. For optional four-frame character animation with PixelLab, set `ENABLE_ANIMATED_SPRITES=true` or send `"animated_sprites": true` to the Studio generation or refinement API. A failed animation request keeps the static sprite.
 
 The generated levels reference PNGs in the adjacent `assets/` directory. Keep that directory alongside the JSON when copying an activity. The games resolve asset paths relative to the JSON selected by `?config=` and also accept image data URIs. Serve the arcade folder with its shared renderer and stylesheets.
 

@@ -40,7 +40,7 @@ def test_remix_creates_valid_new_revision(tmp_path, monkeypatch):
     assert 'evidence' in result['summary']
 
 
-def test_catalog_deduplicates_latest_saved_topic_theme_level(tmp_path, monkeypatch):
+def test_catalog_keeps_same_theme_runs_in_separate_asset_bundles(tmp_path, monkeypatch):
     game = 'Claim-Inspector'
     source = tmp_path/'arcade'/game/'source'
     source.mkdir(parents=True)
@@ -58,11 +58,12 @@ def test_catalog_deduplicates_latest_saved_topic_theme_level(tmp_path, monkeypat
         path.with_suffix('.meta.json').write_text(json.dumps({'topic':'Evidence','theme':'Space Station'}))
     monkeypatch.setattr(server,'ROOT',tmp_path)
     monkeypatch.setattr(server,'GAMES',tmp_path/'arcade')
-    baseline,saved = server.catalog()
+    baseline,old,saved = server.catalog()
     assert baseline['levels'][1].endswith('/default.json')
     assert saved['backgroundSprite'] == '/generated/Claim-Inspector/assets/arena.png'
     assert saved['environment'] == cfg['theme']['environment']
-    assert saved['levels'] == {1:'/generated/Claim-Inspector/new_L1.json',2:'/generated/Claim-Inspector/old_L2.json'}
+    assert saved['levels'] == {1:'/generated/Claim-Inspector/new_L1.json'}
+    assert old['levels'] == {1:'/generated/Claim-Inspector/old_L1.json',2:'/generated/Claim-Inspector/old_L2.json'}
 
 def test_pixel_settings_session_and_dotenv(monkeypatch,tmp_path):
     monkeypatch.delenv("PIXELLAB_API_KEY",raising=False)
@@ -125,7 +126,7 @@ def test_save_and_delete_draft_with_all_three_art_assets(tmp_path,monkeypatch,an
         path=(directory/asset).with_stem((directory/asset).stem+'_anim')
         Image.new('RGBA',(512,128),'green').save(path)
         return path.relative_to(directory).as_posix()
-    image_client=Mock(pixel_key='test',providers={},generate=draw,animate=Mock(side_effect=animate))
+    image_client=Mock(pixel_key='test',provider_errors=[],providers={},generate=draw,animate=Mock(side_effect=animate))
     monkeypatch.setattr(generator,'ImageClient',lambda:image_client)
     def request(endpoint,data,method='POST'):
         handler = object.__new__(server.Handler)
@@ -181,7 +182,9 @@ def test_import_loads_repository_env_before_client_configuration(tmp_path, monke
     script = """
 import runpy, sys
 module = runpy.run_path(sys.argv[1])
+from generator import image_client
 from generator.image_client import ImageClient
+image_client.REPO_ROOT = module['ROOT']
 llm = module['LLMClient']()
 assert (llm.base,llm.key,llm.model)==('http://localhost:4321/v1','test key #1','auto')
 assert (ImageClient().model,ImageClient().pixel_key)==('test-image','pixel-test')

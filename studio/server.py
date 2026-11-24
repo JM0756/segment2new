@@ -21,6 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from generator.settings import load_env
 
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=ROOT / '.env', override=True)
 load_env(ROOT / '.env')
 
 from generator.image_client import clean_sprite_background
@@ -122,10 +125,8 @@ def _catalog(include_versions=False):
                 setting = info.get('theme', theme['title'])
                 if path.parent == source:
                     key = 'baseline'
-                elif path.parent.parent == folder:
-                    key = (path.parent,group)
                 else:
-                    key = (topic.strip().casefold(),setting.strip().casefold())
+                    key = (path.parent,group)
                 item = groups.setdefault(key, dict(title=theme['title'], levels={}, game=game,
                                                     topic=topic, theme=setting, accent=theme.get('accent'), thumbnail=None))
                 if include_versions:
@@ -290,7 +291,10 @@ def operation(endpoint, data):
     animated = data.get('animated_sprites')
     if animated is not None and not isinstance(animated, bool):
         raise ValueError('animated_sprites must be a boolean')
-    options = dict(bundle={}, animated_sprites=animated, root=ROOT, log=ROOT/'generator/logs/generation_logs.jsonl',
+    # One request-local bundle carries the model response through each tier.
+    # generate normalizes each candidate before its standalone schema validator runs.
+    bundle = {}
+    options = dict(bundle=bundle, animated_sprites=animated, root=ROOT, log=ROOT/'generator/logs/generation_logs.jsonl',
                    generate_sprites=bool(animated or data.get('sprites')), progress=progress, raise_on_failure=True)
     directory = draft_root()/game/uuid4().hex
     directory.mkdir(parents=True)
@@ -329,7 +333,7 @@ def operation(endpoint, data):
         for tier in (1,2,3):
             if tier != level:
                 sibling_options = options
-                if (options['bundle'].get('_physics_revision') and not options['generate_sprites']
+                if (bundle.get('_physics_revision') and not options['generate_sprites']
                         and tier in options['revision_levels']):
                     source_path = ROOT/group[tier].lstrip('/')
                     copy_art(options['revision_levels'][tier],source_path,directory,prefix=f'L{tier}_')

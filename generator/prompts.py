@@ -1,5 +1,7 @@
 import json
 
+UI_KEYS = ("practice", "begin", "skip", "guide", "check", "again", "success", "failure", "hintLabel")
+
 PROMPT_VERSION = "fgp-v3"
 SPRITE_STYLE = ("16-bit pixel art chibi avatar character sprite matching a standardized blocky base template "
                 "(square pixel head with two dark pixel eyes, compact rectangular body, bold 2px dark outline), "
@@ -34,16 +36,23 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
               "constraints": [TIERS[level], knobs, "Give this game a themed title and short subtitle shared by all tiers."]}
     inputs["world_physics_schema"] = json.loads((source.parents[1]/"world_physics.schema.json").read_text())
     inputs["constraints"].append("Design top-level world_physics for each level: normalized center coordinates, "
-        "theme-matched surface speed, drag, trails, interactive structures and 1–4 separated solid obstacles. "
+        "theme-matched surface speed, drag, trails, interactive structures and one or two small perimeter props clear of all walking lanes. "
         "Keep obstacles away from entry-to-checkpoint lane and zones. Preserve mechanics for physical edits. "
         "For classifiers give theme.class0 and class1 names, trueFeature and one spuriousFeatures entry, "
         "each feature with a display name and two themed value labels. Use them in all player-facing text.")
+    inputs["constraints"].append("Provide tilemap as 12 strings of 20 tiles each. Use . for floor, # for props, ~ for terrain. "
+        "Place one S entry, ? inspection pad and L/R gates at their world_physics coordinates. Connect all four by walking paths. "
+        "Keep level 1 open, add obstacles at level 2 and terrain zones at level 3.")
+    if archetype == "Feature-Classifier":
+        inputs["cue_example"] = {"name":"aura", "role":"spurious", "values":["crimson_mist","blue_glow"],
+                                 "label":"Aura", "value_labels":{"crimson_mist":"Crimson mist","blue_glow":"Blue glow"}}
+        inputs["constraints"].append("Copy concrete visual traits and distractors from the request verbatim into the two class-ordered trueFeature.values and spuriousFeatures[0].values. Put additional distractors in noise value_labels. Bind labels to the actual mechanics value IDs, including in theme-only patches. Give every cue a label and value_labels as in cue_example. These are normalized into theme.featureLabels.")
     if generate_sprites:
         inputs["constraints"].append(
             "In theme.sprites, supply class0_prompt and class1_prompt for the first two "
             "theme.options (or classLabels in sorted key order). Describe each entity using this exact style: "
             f"{SPRITE_STYLE} Use the same front/three-quarter "
-            "stance for both classes; vary only clothing, helmet, hair and accessories. Omit asset paths."
+            "stance with distinct silhouettes, anatomy and team palettes. Describe only that class and its true visual traits. Omit the game title, opponent and distractors. Omit asset paths."
         )
     else:
         inputs["constraints"].append("Omit theme.sprites.")
@@ -70,6 +79,11 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         if name=="default" and level>1:
             path = source/f"level{level}.json"
         inputs[name] = json.loads(path.read_text())
+    exemplar = inputs["default"]
+    inputs["required_ui_example"] = {"archetype": exemplar["archetype"],
+                                     "theme": {key: exemplar["theme"][key] for key in UI_KEYS}}
+    inputs["constraints"].append("For a complete level, put archetype at its root and all nine UI strings "
+                                 "directly inside theme, as in required_ui_example. Adapt the text to the setting.")
     inputs["evaluation_rules"] = {
         "Feature-Classifier": (
             "Use one true and one spurious binary feature, plus one noise feature at higher levels. A six-sample wave always contains four aligned and two inverted cases. "

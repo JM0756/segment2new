@@ -95,7 +95,7 @@ function resultCard(item,file,where,summary){
       try{
         const result=await libraryRequest('/api/save-game','POST',item.game,file);
         if(targetPath===file)targetPath=result.config_path;
-        file=result.config_path;item.levels=result.levels;
+        file=result.config_path;item.levels=result.levels;item.preview_path=file;
         save.textContent='Saved';await refresh();
       }catch(err){save.disabled=false;$('status').textContent=err.message;}
     });
@@ -124,18 +124,18 @@ function play(item,file,requested){
     const stored=Number(localStorage.getItem(storageKey));
     if([0,1,2,3].includes(stored))unlocked=Math.max(unlocked,stored);
   }catch{}
-  const baseline=items.find(i=>i.game===item.game&&!saved(i));
   const first=item.levels[1]||file;
-  const paths=[first,first,item.levels[2]||baseline?.levels[2],item.levels[3]||baseline?.levels[3]];
-  level=Progression.enter(unlocked,requested??0);
+  const paths=[item.preview_path||first,first,item.levels[2],item.levels[3]];
+  const lastLevel=paths[2]?(paths[3]?3:2):1;
+  level=Progression.enter(Math.min(unlocked,lastLevel),requested??0);
   path=paths[level];runId=crypto.randomUUID();
   $('play').hidden=false;$('remixToggle').hidden=!Progression.canRemix(level,unlocked);
   if(Object.values(item.levels).includes(path))targetPath=path;
   const url=new URL('/arcade/'+item.game+'/source/index.html',location.origin);
-  url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,game:item.game,run:runId});
+  url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,lastLevel,game:item.game,run:runId});
   if(requested>0)url.searchParams.set('transition','1');
-  $('resumeLevel').hidden=level===0||unlocked<=level;
-  $('resumeLevel').textContent='Resume Level '+unlocked;
+  $('resumeLevel').hidden=level===0||Math.min(unlocked,lastLevel)<=level;
+  $('resumeLevel').textContent='Resume Level '+Math.min(unlocked,lastLevel);
   $('stage').src=url;$('stage').title=item.title+' · '+(level?'Level '+level:'Tutorial');
 }
 window.addEventListener('message',e=>{

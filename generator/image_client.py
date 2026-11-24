@@ -14,17 +14,18 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 
-if __package__:
-    from .settings import load_env
-else:
-    from settings import load_env
+from dotenv import load_dotenv
 
-load_env(Path(__file__).resolve().parents[1] / ".env")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 logger = logging.getLogger(__name__)
+# ImageClient instances are per level, but provider credit belongs to the account.
+_exhausted_retro_keys = set()
 
 
 class ImageGenerationError(Exception):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 def clean_sprite_background(image):
@@ -96,6 +97,7 @@ def frame_character(image):
 
 class ImageClient:
     def __init__(self):
+        load_dotenv(dotenv_path=REPO_ROOT / ".env", override=True)
         base = os.getenv("IMAGE_BASE_URL") or os.getenv("LLM_BASE_URL", "http://localhost:3001/v1")
         self.base = base.rstrip("/")
         if not self.base.endswith("/v1"):
@@ -107,9 +109,12 @@ class ImageClient:
         self.retro_key = os.getenv("RETRODIFFUSION_API_KEY", "").strip()
         self.provider = (os.getenv("IMAGE_PROVIDER") or "auto").strip().lower()
         self.providers = {}
+        self.provider_errors = []
 
     def animate(self, directory, asset, description):
         """Build a four-frame horizontal sheet from PixelLab's 64px text animation."""
+        if self.provider == "retrodiffusion" and self.retro_key not in _exhausted_retro_keys:
+            raise ImageGenerationError("PixelLab animation disabled by Retro Diffusion provider lock")
         source = directory / asset
         relative = Path(asset).with_stem(source.stem + "_anim")
         try:
@@ -153,23 +158,37 @@ class ImageClient:
             if self.provider not in order:
                 raise ImageGenerationError(f"Unknown IMAGE_PROVIDER: {self.provider}")
             order = order[order.index(self.provider):]
+        if self.provider == "retrodiffusion":
+            order = ["retrodiffusion", "pixellab"]
+        if self.retro_key in _exhausted_retro_keys and "retrodiffusion" in order:
+            order.remove("retrodiffusion")
+        order = [p for p in order if (p != "retrodiffusion" or self.retro_key or self.provider == p) and (p != "pixellab" or self.pixel_key)]
         failures = []
-        for provider in order:
-            if ((provider == "retrodiffusion" and not self.retro_key) or
-                    (provider == "pixellab" and not self.pixel_key)):
-                logger.info("%s: skipping %s (no API key)", slot, provider)
-                continue
+        for index, provider in enumerate(order):
             try:
+                if provider == "retrodiffusion" and not self.retro_key:
+                    raise ImageGenerationError("RETRODIFFUSION_API_KEY is missing")
                 path = self._generate_with(provider, prompt, directory, run_slug, slot)
             except ImageGenerationError as exc:
                 reason = f"{provider}: {exc}"
-                logger.warning("%s image fallback: %s", slot, reason)
+                status = exc.status
+                detail = str(exc) if provider == "retrodiffusion" else str(exc)[:500]
+                self.provider_errors.append(dict(slot=slot, provider=provider, status=status, message=detail))
+                if provider == "retrodiffusion":
+                    message = detail.lower().replace("_", " ")
+                    if status == 402 or any(term in message for term in ("insufficient balance", "not enough balance", "balance exhausted")):
+                        _exhausted_retro_keys.add(self.retro_key)
+                    elif self.provider == "retrodiffusion":
+                        del order[index+1:]
+                following = order[index+1] if index+1 < len(order) else "procedural"
+                logger.warning("[image_client] %s failed (status=%s): %s -> falling back to %s",
+                               provider, status or "unavailable", detail, following)
                 failures.append(reason)
                 continue
             self.providers[slot] = provider
             return path
         self.providers[slot] = "procedural"
-        raise ImageGenerationError("; ".join(failures))
+        raise ImageGenerationError("; ".join(failures) or f"No key configured for {self.provider}")
 
     def _generate_with(self, provider, prompt, directory, run_slug, slot):
         headers = {"Content-Type": "application/json", "User-Agent": "ur2phd-generator/1.0"}
@@ -179,10 +198,9 @@ class ImageClient:
             headers["X-RD-Token"] = self.retro_key
             width, height = (384, 216) if scene else (128, 128)
             if not scene:
-                prompt = prompt.replace("pure solid #FFFFFF background", "transparent background")
-                prompt += ". Centered full-body pixel-art character sprite, clear silhouette, transparent background."
-            payload = dict(width=width, height=height, prompt=prompt, remove_bg=not scene, num_images=1,
-                           prompt_style="rd_fast__environment" if scene else "rd_fast__game_asset")
+                prompt += ". Centered full-body pixel-art character with a clear silhouette on a solid white background."
+            payload = dict(width=width, height=height, prompt=prompt, num_images=1,
+                           prompt_style="rd_plus__environment" if scene else "rd_fast__game_asset")
         elif provider == "pixellab":
             endpoint = self.pixel_base + "/generate-image-pixflux"
             headers["Authorization"] = f"Bearer {self.pixel_key}"
@@ -201,12 +219,29 @@ class ImageClient:
         suffix = "background" if scene else slot
         relative = Path("assets") / f"{run_slug}_{suffix}.png"
         target = directory / relative
+        status = None
         try:
             request = Request(endpoint, json.dumps(payload).encode(), headers)
             for attempt in range(2):
                 try:
                     with urlopen(request, timeout=30) as response:
-                        result = json.load(response)
+                        status = getattr(response, "status", 200)
+                        if status != 200:
+                            detail = response.read(500).decode("utf-8",errors="replace").strip()
+                            raise ImageGenerationError(detail,status)
+                        if provider == "retrodiffusion":
+                            raw = response.read()
+                            snippet = raw[:500].decode("utf-8",errors="replace").strip()
+                            try:
+                                result = json.loads(raw)
+                            except ValueError as error:
+                                raise ImageGenerationError(f"Invalid JSON: {snippet}",status) from error
+                            if isinstance(result, dict) and result.get("error"):
+                                raise ImageGenerationError(json.dumps(result["error"], ensure_ascii=False), status)
+                            if not isinstance(result,dict) or not any(result.get(k) for k in ("base64_images","images","data")):
+                                raise ImageGenerationError(f"Missing generated image: {snippet}",status)
+                        else:
+                            result = json.load(response)
                     break
                 except HTTPError as error:
                     if provider != "cloudflare" or attempt or error.code not in (429, 502, 503):
@@ -232,21 +267,28 @@ class ImageClient:
                     image = source.convert("RGBA")
             except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as error:
                 snippet = raw_bytes[:200].decode("utf-8", errors="replace")
-                raise ImageGenerationError(f"Invalid image response: {snippet!r}") from error
+                raise ImageGenerationError(f"Invalid image response: {snippet!r}",status) from error
             target.parent.mkdir(parents=True, exist_ok=True)
             if scene:
                 output = ImageOps.fit(image.convert("RGB"), (384, 216) if provider == "retrodiffusion" else (320, 180), method=Image.Resampling.NEAREST)
-            elif provider != "cloudflare" and image.getpixel((0,0))[3] == 0:
+            elif provider == "pixellab" and image.getpixel((0,0))[3] == 0:
                 output = frame_character(image)
             else:
                 output = clean_sprite_background(image)
             output.save(target, format="PNG")
         except HTTPError as error:
             try:
-                detail = error.read().decode("utf-8", errors="replace").strip()
+                with error:
+                    body = error.read() if provider == "retrodiffusion" else error.read(500)
+                detail = body.decode("utf-8", errors="replace").strip()
+                if provider == "retrodiffusion":
+                    try:
+                        detail = json.dumps(json.loads(detail), ensure_ascii=False)
+                    except ValueError:
+                        pass
             except (OSError, HTTPException) as read_error:
                 detail = str(read_error)
-            raise ImageGenerationError(f"HTTP {error.code}: {error.reason} {detail}".strip()) from error
+            raise ImageGenerationError(f"HTTP {error.code}: {error.reason} {detail}".strip(),error.code) from error
         except (OSError, HTTPException, ValueError, TypeError, AttributeError, KeyError, IndexError) as error:
-            raise ImageGenerationError(str(error)) from error
+            raise ImageGenerationError(str(error),status) from error
         return relative.as_posix()

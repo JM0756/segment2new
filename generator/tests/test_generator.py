@@ -20,7 +20,9 @@ from generator.metrics import summarize
 
 
 @pytest.fixture(autouse=True)
-def isolated_image_provider(monkeypatch):
+def isolated_image_provider(monkeypatch,tmp_path):
+    monkeypatch.setattr("generator.image_client._exhausted_retro_keys", set())
+    monkeypatch.setattr("generator.image_client.REPO_ROOT",tmp_path/"test-settings")
     monkeypatch.delenv("ENABLE_ANIMATED_SPRITES", raising=False)
     monkeypatch.setenv("RETRODIFFUSION_API_KEY", "")
     monkeypatch.setenv("IMAGE_PROVIDER", "auto")
@@ -529,7 +531,7 @@ def test_llm_cannot_supply_unowned_background_path(tmp_path):
 def test_background_failure_retains_characters_and_procedural_scene(tmp_path, monkeypatch):
     config = default("Alert-Dial")
     config["theme"]["sprites"] = dict(class0_prompt="crew", class1_prompt="android")
-    client = Mock(providers={})
+    client = Mock(provider_errors=[],providers={})
     client.generate.side_effect = ["assets/a.png", "assets/b.png", ImageGenerationError("busy")]
     monkeypatch.setattr(cli, "ImageClient", lambda: client)
     warning = cli.attach_sprites(config, None, ARCADE/"Alert-Dial/source", "Alert-Dial", 1, tmp_path, "test")
@@ -557,7 +559,7 @@ def test_cleanup_keys_dominant_border_and_enclosed_neutral_pocket(background):
 def test_generate_class_sprites_for_arena_games(tmp_path, monkeypatch, game):
     text = Mock(model="mock")
     text.complete.return_value = json.dumps(default(game))
-    images = Mock(providers={})
+    images = Mock(provider_errors=[],providers={})
     images.generate.side_effect = lambda _, directory, stem, slot: f"assets/{slot}.png"
     monkeypatch.setattr(cli, "ImageClient", lambda: images)
     path = generate(text, game, "Activity", "Archive", 1, root=tmp_path, log=tmp_path/"log",
@@ -712,7 +714,7 @@ def test_incomplete_animation_keeps_static_reference(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("slot,size,style", [
     ("class0", (128,128), "rd_fast__game_asset"),
-    ("backgroundSprite", (384,216), "rd_fast__environment"),
+    ("backgroundSprite", (384,216), "rd_plus__environment"),
 ])
 @pytest.mark.parametrize("field", ["base64_images", "images", "data"])
 def test_retro_first_and_png_dimensions(tmp_path, monkeypatch, slot, size, style, field):
@@ -732,7 +734,7 @@ def test_retro_first_and_png_dimensions(tmp_path, monkeypatch, slot, size, style
     payload = json.loads(request.data)
     assert (payload["width"],payload["height"]) == size
     assert payload["prompt_style"] == style and payload["num_images"] == 1
-    assert payload["remove_bg"] is (slot != "backgroundSprite")
+    assert "remove_bg" not in payload
     with Image.open(tmp_path/asset) as image:
         assert image.format == "PNG" and image.size == size
     assert client.providers[slot] == "retrodiffusion"
@@ -754,6 +756,9 @@ def test_retro_failure_falls_through_to_pixellab(tmp_path, monkeypatch, failure,
     retry=send.call_args.args[0]
     assert retry.full_url.endswith("/generate-image-pixflux") and retry.get_header("X-rd-token") is None
     assert client.providers["class1"]=="pixellab" and "retrodiffusion" in caplog.text
+    if isinstance(failure,int):
+        assert f"[image_client] retrodiffusion failed (status={failure})" in caplog.text
+        assert "unavailable -> falling back to pixellab" in caplog.text
 
 
 @pytest.mark.parametrize("gateway_fails", [False,True])
@@ -772,7 +777,7 @@ def test_all_assets_follow_waterfall_and_log_sources(tmp_path,monkeypatch,gatewa
     text=Mock(model="test")
     text.complete.return_value=json.dumps(default("Feature-Classifier"))
     path=generate(text,"Feature-Classifier","Features","Forest",1,root=tmp_path,log=tmp_path/"log",generate_sprites=True)
-    assert send.call_count==9 and path.is_file()
+    assert send.call_count==7 and path.is_file()
     expected=dict.fromkeys(("class0","class1","backgroundSprite"),"procedural" if gateway_fails else "cloudflare")
     for file in (path.with_suffix(".meta.json"),tmp_path/"log"):
         assert json.loads(file.read_text())["asset_providers"]==expected
@@ -816,3 +821,213 @@ def test_explicit_cloudflare_skips_paid_providers_and_reuses_character_provenanc
     themes=[json.loads(path.read_text())["theme"] for path in paths]
     assert len({theme["class0Sprite"] for theme in themes})==1
     assert len({theme["backgroundSprite"] for theme in themes})==3
+
+
+@pytest.mark.parametrize("status", [402, 400])
+def test_retro_balance_failure_skips_to_pixellab_across_clients(tmp_path, monkeypatch, caplog, status):
+    from generator import image_client
+    (tmp_path/".env").write_text("RETRODIFFUSION_API_KEY=file-key\nIMAGE_PROVIDER=retrodiffusion\n")
+    monkeypatch.setattr(image_client, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("PIXELLAB_API_KEY", "pixel-test")
+    calls = []
+    def respond(request, timeout):
+        calls.append(request.full_url)
+        if "retrodiffusion.ai" in request.full_url:
+            assert request.get_header("X-rd-token") == "file-key"
+            raise HTTPError(request.full_url, status, "No credits", {}, BytesIO(b'{"code":"insufficient_balance"}'))
+        return BytesIO(json.dumps({"image": {"base64": base64.b64encode(PNG).decode()}}).encode())
+    monkeypatch.setattr(image_client, "urlopen", respond)
+    for slot in ("class0", "class1", "backgroundSprite"):
+        client = ImageClient()
+        client.generate("Lawn", tmp_path, "game", slot)
+        assert client.providers[slot] == "pixellab"
+    assert sum("retrodiffusion.ai" in url for url in calls) == 1
+    assert len(calls) == 4
+    assert f"retrodiffusion failed (status={status})" in caplog.text
+
+
+def test_unreachable_model_map_replaced_with_connected_tier(tmp_path):
+    from generator.tilemap import valid_tilemap
+    game="Feature-Classifier"
+    for level in (1,2,3):
+        cfg=cli.tier_default(ARCADE/game/"source",level)
+        grid=cfg["tilemap"]
+        assert valid_tilemap(grid,level)
+        cfg["tilemap"]=[row[:12]+"#"+row[13:] for row in grid]
+        assert not valid_tilemap(cfg["tilemap"],level)
+        path,record,_=run(tmp_path,[json.dumps(cfg)],level=level)
+        assert record["first_pass_success"]
+        assert valid_tilemap(json.loads(path.read_text())["tilemap"],level)
+
+
+@pytest.mark.parametrize("embedded", [False,True])
+def test_missing_cue_labels_are_normalized_before_first_validation(tmp_path,embedded):
+    cfg = default("Feature-Classifier")
+    cfg = json.loads(json.dumps(cfg).replace('"green"', '"crimson_mist"'))
+    cfg["theme"]["featureLabels"] = {"spiky":"Cut crystal"}
+    aura = next(f for f in cfg["mechanics"]["features"] if f["name"]=="aura")
+    if embedded:
+        aura.update(display_label="Mist hue",value_labels={"crimson_mist":"Ember cloud"})
+    path, record, client = run(tmp_path,[json.dumps(cfg)])
+    assert record["first_pass_success"] and client.complete.call_count==1
+    accepted = json.loads(path.read_text())
+    labels = accepted["theme"]["featureLabels"]
+    assert labels["core"]=="Core" and labels["spiky"]=="Cut crystal"
+    assert labels["aura"]==("Mist hue" if embedded else "Aura")
+    assert labels["crimson_mist"]==("Ember cloud" if embedded else "Crimson mist")
+
+
+def test_generated_props_are_small_and_outside_class_paths(tmp_path):
+    cfg=default("Feature-Classifier")
+    cfg["world_physics"]["obstacles"]=[
+        dict(id=str(i),kind="crate",x=x,y=y,w=.06,h=.08)
+        for i,(x,y) in enumerate([(.38,.48),(.68,.72),(.13,.82),(.88,.81)])]
+    path,record,_=run(tmp_path,[json.dumps(cfg)])
+    accepted=json.loads(path.read_text())
+    assert record["first_pass_success"]
+    props=accepted["world_physics"]["obstacles"]
+    assert len(props)==2 and sum(row.count("#") for row in accepted["tilemap"])==2
+    for prop in props:
+        assert prop["x"]<.2 or prop["x"]>=.8
+        assert accepted["tilemap"][int(prop["y"]*12)][int(prop["x"]*20)]=="#"
+
+
+@pytest.mark.parametrize("game", ARCHETYPES)
+def test_missing_required_ui_and_archetype_pass_first_attempt(tmp_path,game):
+    cfg=default(game)
+    kind=cfg.pop("archetype")
+    cfg["theme"]["title"]="Moon garden"
+    for key in cli.UI_KEYS:
+        del cfg["theme"][key]
+    cfg["ui"]={"labels":{"begin":"Enter garden","success":"Bloom recorded"}}
+    cfg["theme"]["copy"]={"guide":"Garden guide"}
+    cfg["check"]="Check specimen"
+    path,record,client=run(tmp_path,[json.dumps(cfg)],game)
+    result=json.loads(path.read_text())
+    assert record["first_pass_success"] and client.complete.call_count==1
+    assert result["archetype"]==kind
+    theme=result["theme"]
+    assert all(theme[k].strip() for k in cli.UI_KEYS)
+    assert "Moon garden" in theme["practice"]
+    assert [theme[k] for k in ("begin","success","guide","check")]==["Enter garden","Bloom recorded","Garden guide","Check specimen"]
+
+
+def test_bundle_copy_is_shared_and_level_copy_wins(tmp_path):
+    client=Mock(model="test")
+    client.complete.return_value=json.dumps({"archetype":"Alert-Dial","strings":{"skip":"Skip walk","begin":"Start walk"},
+        "level1":{"theme":{"title":"Night watch","begin":"Start shift"}}, "level2":{"controls":{"guide":"Watch guide"}}})
+    options=dict(root=tmp_path,log=tmp_path/"log",bundle={},raise_on_failure=True)
+    args=client,"Alert-Dial","Alerts","Noir"
+    first=generate(*args,1,**options)
+    second=generate(*args,2,previous=first,**options)
+    a,b=[json.loads(p.read_text())["theme"] for p in (first,second)]
+    assert a["skip"]==b["skip"]=="Skip walk"
+    assert a["begin"]=="Start shift" and b["begin"]=="Start walk" and b["guide"]=="Watch guide"
+    client.complete.assert_called_once()
+
+
+def test_all_required_ui_defaults_without_any_copy_container(tmp_path):
+    cfg=default("Feature-Classifier")
+    del cfg["archetype"]
+    for key in cli.UI_KEYS:
+        del cfg["theme"][key]
+    path,record,client=run(tmp_path,[json.dumps(cfg)])
+    result=json.loads(path.read_text())
+    assert result["archetype"]=="classifier"
+    assert all(result["theme"][key].strip() for key in cli.UI_KEYS)
+    assert record["first_pass_success"] and client.complete.call_count==1
+
+
+@pytest.mark.parametrize("attempt", [1, 2, 3])
+def test_generate_post_normalizes_wrapped_replies_before_validation(tmp_path, monkeypatch, attempt):
+    from email.message import Message
+    from studio import server
+
+    game = "Feature-Classifier"
+    source = ARCADE/game/"source"
+    levels = [cli.tier_default(source, tier) for tier in (1, 2, 3)]
+    for level in levels:
+        del level["archetype"]
+        for key in cli.UI_KEYS:
+            del level["theme"][key]
+    levels[1]["controls"] = {"labels": {"begin": "Start the second survey"}}
+    response = {"game": {"ui": {"theme": {"guide": "Wildlife guide"}}, "levels": levels}}
+    client = Mock(model="test")
+    client.complete.side_effect = ["{}"]*(attempt-1) + [json.dumps(response)]
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    monkeypatch.setattr(server, "LLMClient", lambda: client)
+    body = json.dumps({"game": game, "topic": "Wildlife", "theme": "Wildlife reserve"}).encode()
+    handler = object.__new__(server.Handler)
+    handler.path = "/api/generate"
+    handler.headers = Message()
+    handler.headers["Host"] = "localhost:8000"
+    handler.headers["Content-Type"] = "application/json"
+    handler.headers["Content-Length"] = str(len(body))
+    handler.rfile = BytesIO(body)
+    handler.respond = Mock()
+    handler.do_POST()
+    status, result = handler.respond.call_args.args
+    assert status == 200, result
+    assert client.complete.call_count == attempt
+    for tier, url in result["levels"].items():
+        path = tmp_path/url.lstrip("/")
+        config = json.loads(path.read_text())
+        assert config["archetype"] == "classifier"
+        assert all(config["theme"][key].strip() for key in cli.UI_KEYS)
+        assert config["theme"]["guide"] == "Wildlife guide"
+        if tier == 2:
+            assert config["theme"]["begin"] == "Start the second survey"
+        metadata = json.loads(path.with_suffix(".meta.json").read_text())
+        assert metadata["attempts"] == (attempt if tier == 1 else 1)
+
+
+@pytest.mark.parametrize("suffix", [" · reactor-core", " space-station architecture"])
+def test_custom_background_prompt_omits_space_layout_suffixes(tmp_path, monkeypatch, suffix):
+    monkeypatch.setenv("RETRODIFFUSION_API_KEY", "test")
+    send = Mock(side_effect=lambda req, timeout: BytesIO(json.dumps(
+        {"base64_images": [base64.b64encode(PNG).decode()]}).encode()))
+    monkeypatch.setattr("generator.image_client.urlopen", send)
+    game = "Feature-Classifier"
+    cfg = cli.tier_default(ARCADE/game/"source", 2)
+    cfg["theme"]["environment"]["setting_name"] = "Wildlife reserve" + suffix
+    cli.attach_sprites(cfg, None, ARCADE/game/"source", game, 2, tmp_path, "wildlife")
+    prompt = json.loads(send.call_args.args[0].data)["prompt"]
+    assert "Wildlife reserve" in prompt
+    assert not any(text in prompt for text in ("space-station", "reactor-core", "reactor core"))
+
+
+def test_retro_logs_complete_json_error_with_http_status(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("RETRODIFFUSION_API_KEY", "test")
+    monkeypatch.setenv("IMAGE_PROVIDER", "retrodiffusion")
+    message = "Details " + "a"*510 + " final constraint"
+    error = HTTPError("retro", 422, "Invalid input", {}, BytesIO(json.dumps({"message":message}).encode()))
+    monkeypatch.setattr("generator.image_client.urlopen", Mock(side_effect=error))
+    client = ImageClient()
+    with pytest.raises(ImageGenerationError, match="HTTP 422"):
+        client.generate("Wildlife", tmp_path, "test", "backgroundSprite")
+    assert "status=422" in caplog.text and message in caplog.text
+    assert client.provider_errors[0]["status"] == 422
+
+@pytest.mark.parametrize("revision", [True, False])
+def test_lawn_traits_drive_gameplay_labels_and_distinct_art_across_tiers(tmp_path, revision):
+    request = ("Garden Plants: Leafy green stems and Glowing sun-core. Lawn Zombies: Tattered suits. "
+               "Distractors: Terracotta flowerpot, Yellow sun-orb, Metal watering can.")
+    client = Mock(model="test")
+    client.complete.return_value = json.dumps({"level1":{"theme":{"title":"Lawn Defense",
+        "options":["Garden Plants","Lawn Zombies"]}}})
+    opts = dict(root=tmp_path, log=tmp_path/"log", bundle={}, raise_on_failure=True)
+    first = None
+    for tier in (1,2,3):
+        revision_args = dict(revision=default("Feature-Classifier"), instruction=request) if revision and not first else {}
+        path = generate(client, "Feature-Classifier", "Visual cues", "Station" if revision else request,
+                        tier, previous=first, **revision_args, **opts)
+        first = first or path
+        cfg = json.loads(path.read_text())
+        labels = cfg["theme"]["featureLabels"]
+        assert [labels[k] for k in ("round","spiky","green","red")] == [
+            "Leafy green stems and Glowing sun-core","Tattered suits","Terracotta flowerpot","Yellow sun-orb"]
+        if tier > 1:
+            assert labels["fast"] == "Metal watering can" and "beacon" not in labels["slow"].lower()
+        prompts = [cli.character_prompt(cfg, i, "Garden Plants versus Lawn Zombies") for i in range(2)]
+        assert "zombie" not in prompts[0].lower() and "plant" not in prompts[1].lower()
+        assert labels["round"] in prompts[0] and labels["spiky"] in prompts[1]

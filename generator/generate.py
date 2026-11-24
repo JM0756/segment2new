@@ -13,17 +13,19 @@ from time import monotonic
 from uuid import uuid4
 
 if __package__:
+    from .tilemap import clear_walking_lanes, curated_tilemap, valid_tilemap
     from .world_physics import default_world, edits_since, geometry_error, merge, patch_world
     from .settings import load_env
     from .image_client import ImageClient, ImageGenerationError
     from .llm_client import APIError, GatewayTimeout, LLMClient, parse_config
-    from .prompts import KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
+    from .prompts import UI_KEYS, KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
 else:
+    from tilemap import clear_walking_lanes, curated_tilemap, valid_tilemap
     from world_physics import default_world, edits_since, geometry_error, merge, patch_world
     from settings import load_env
     from image_client import ImageClient, ImageGenerationError
     from llm_client import APIError, GatewayTimeout, LLMClient, parse_config
-    from prompts import KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
+    from prompts import UI_KEYS, KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
 
 ROOT = Path(__file__).resolve().parents[1]
 GAMES = ROOT / "arcade"
@@ -32,6 +34,7 @@ ARCHETYPES = ("Feature-Classifier", *KNOBS)
 
 
 def validate(source, archetype, config, level):
+    normalize_required_ui(config, tier_default(source, level), archetype)
     with TemporaryDirectory() as folder:
         candidate = Path(folder) / "candidate.json"
         candidate.write_text(json.dumps(config))
@@ -41,6 +44,8 @@ def validate(source, archetype, config, level):
         return (result.stdout + result.stderr).rstrip("\n")
     if not isinstance(config, dict) or "mechanics" not in config:
         return "Expected standalone config with mechanics and theme."
+    if "tilemap" in config and not valid_tilemap(config["tilemap"],level):
+        return "Tilemap requires reachable S, ?, L and R and tier-specific terrain."
     if "world_physics" in config:
         error = geometry_error(config["world_physics"])
         if error:
@@ -110,7 +115,32 @@ def validate(source, archetype, config, level):
     return None
 
 
-def attach_sprites(config, previous, source, archetype, level, directory, stem, animated_sprites=None, providers=None):
+def character_prompt(config, index, description):
+    theme = config["theme"]
+    labels = theme.get("options") or [label for _, label in sorted(theme.get("classLabels", {}).items())]
+    name = labels[index] if index < len(labels) else f"Character {index+1}"
+    other = labels[1-index] if len(labels) >= 2 else ""
+    # Drop a contaminated description as a whole: removing a noun can still leave
+    # the opposing class's clothing and anatomy in the art direction.
+    def roots(label):
+        return {word.rstrip("s") for word in re.findall(r"[a-z]+", label.lower())}
+    opposing = roots(other) - roots(name)
+    rule = config["mechanics"].get("class_rule", {})
+    cue = theme.get("featureLabels", {}).get(rule.get(("class_a_value", "class_b_value")[index]), "")
+    palette = theme.get("palette", {}).get(f"team{index}") or ("warm amber", "cool violet")[index]
+    silhouette = ("broad rounded", "tall angular")[index]
+    if palette == theme.get("palette", {}).get(f"team{1-index}"):
+        palette = ("warm amber", "cool violet")[index]
+    parts = [name]
+    for detail in (cue, description):
+        if detail and not (roots(detail) & opposing):
+            parts.append(detail)
+    parts.append(f"{silhouette} silhouette, {palette} palette")
+    return ". ".join(parts) + ". " + SPRITE_STYLE.replace(
+        "<theme outfit/accessories>", "accessories specific to this character")
+
+
+def attach_sprites(config, previous, source, archetype, level, directory, stem, animated_sprites=None, providers=None, provider_errors=None):
     theme = config["theme"]
     prompts = theme.pop("sprites", {})
     previous_theme = previous["theme"] if previous else {}
@@ -130,11 +160,7 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
                 if prompt in previous_sprites:
                     sprites[prompt] = previous_sprites[prompt]
                 continue
-            if not prompts.get(prompt, "").strip():
-                labels = theme.get("options") or [label for _,label in sorted(theme.get("classLabels", {}).items())]
-                index = int(slot[-1])
-                label = labels[index] if index < len(labels) else f"Character {index+1}"
-                prompts[prompt] = f"{label} in {theme['setting']}. {SPRITE_STYLE.replace('<theme outfit/accessories>', 'clothing suited to this setting')}"
+            prompts[prompt] = character_prompt(config, int(slot[-1]), prompts.get(prompt, ""))
             print(f"Generating Level {level} sprite {slot}", flush=True)
             sprites[prompt] = prompts[prompt]
             art_stem = f"{stem}_L{level}" if previous else stem
@@ -144,7 +170,7 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
                 warnings.append(f"{slot} image failed. Using a procedural character. {exc}")
                 continue
             created.append(directory / sprites[asset])
-            if animated_sprites and client.pixel_key:
+            if animated_sprites and client.pixel_key and (client.provider != "retrodiffusion" or client.providers.get(slot) == "pixellab"):
                 try:
                     sprites[asset] = client.animate(directory, sprites[asset], prompts[prompt])
                     client.providers[slot+"Animation"] = "pixellab"
@@ -158,8 +184,9 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
                     theme[slot+"Sprite"] = sprites[slot+"_asset"]
         env = theme["environment"]
         surface = config.get("world_physics",{}).get("surface",{}).get("type",env["floor_style"])
-        description = (f"16-bit top-down 2D pixel art game arena background of {env['setting_name']}, "
-                       f"{env['layout']} architecture, {surface} walking surface, perimeter details: {', '.join(env['props'])}, "
+        location = environment_name(env["setting_name"])
+        description = (f"16-bit top-down 2D pixel art game arena background of {location}, "
+                       f"{surface} walking surface, perimeter details: {', '.join(env['props'])}, "
                        f"palette {env['primary_color']} {env['secondary_color']} {env['accent_color']}, "
                        "atmospheric lighting, open floor for the live checkpoint, gates and obstacles, vibrant cel-shaded pixel art, "
                        "no characters, no text")
@@ -179,9 +206,86 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
         for path in created:
             path.unlink(missing_ok=True)
         raise
-    if providers is not None:
-        providers.update(client.providers)
+    finally:
+        if provider_errors is not None:
+            provider_errors.extend(client.provider_errors)
+        if providers is not None:
+            providers.update(client.providers)
     return " ".join(warnings) or None
+
+
+UI_CONTAINERS = ("ui", "labels", "strings", "controls", "narrator", "copy", "theme")
+
+
+def ui_fields(node):
+    """Collect strings from known copy containers, preferring the nearest direct field."""
+    result = {}
+    if isinstance(node, dict):
+        for name in UI_CONTAINERS:
+            result.update(ui_fields(node.get(name)))
+        for key in (*UI_KEYS, "archetype"):
+            value = node.get(key)
+            if isinstance(value, str) and value.strip():
+                result[key] = value
+    return result
+
+
+def lift_ui(config, shared=None):
+    if not isinstance(config, dict):
+        return
+    theme = config.get("theme")
+    fields = {**(shared or {}), **ui_fields(config), **ui_fields(theme)}
+    kind = fields.pop("archetype", None)
+    if kind and not config.get("archetype"):
+        config["archetype"] = kind
+    if fields and theme is None:
+        theme = config["theme"] = {}
+    if isinstance(theme, dict):
+        theme.update(fields)
+        theme.pop("archetype", None)
+    for node in (config, theme):
+        if isinstance(node, dict):
+            for name in UI_CONTAINERS:
+                if name != "theme":
+                    node.pop(name, None)
+    for key in UI_KEYS:
+        config.pop(key, None)
+
+
+def normalize_required_ui(config, exemplar, game):
+    if not isinstance(config, dict):
+        return
+    lift_ui(config)
+    kind = config.get("archetype")
+    if kind is None or isinstance(kind, str) and kind.strip() in ("", game):
+        config["archetype"] = exemplar["archetype"]
+    theme = config.get("theme")
+    if isinstance(theme, dict):
+        defaults = dict(exemplar["theme"])
+        if title := theme.get("title"):
+            defaults.update(practice=f"Practice a round of {title}.", success=f"{title} round complete.")
+        for key in UI_KEYS:
+            if not isinstance(theme.get(key), str) or not theme[key].strip():
+                theme[key] = defaults[key]
+
+
+def normalize_classifier_labels(config):
+    theme = config["theme"]
+    if theme.get("featureLabels") is None:
+        theme["featureLabels"] = {}
+    labels = theme["featureLabels"]
+    for feature in config["mechanics"]["features"]:
+        name = feature["name"]
+        label = feature.pop("label", None)
+        display = feature.pop("display_label", None) or label
+        overrides = feature.pop("value_labels", {})
+        for key in [name, *feature["values"]]:
+            supplied = display if key == name else overrides.get(key) if isinstance(overrides, dict) else None
+            if isinstance(supplied, str) and supplied.strip():
+                labels[key] = supplied.strip()
+            elif not isinstance(labels.get(key), str) or not labels[key].strip():
+                words = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", key)
+                labels[key] = re.sub(r"[_-]+", " ", words).strip().capitalize()
 
 
 def inherit_classifier_labels(config, previous):
@@ -202,7 +306,33 @@ def inherit_classifier_labels(config, previous):
             theme["featureLabels"][new_key] = prior["featureLabels"][old_key]
 
 
-def apply_classifier_identity(config, template, previous):
+def requested_traits(text, names):
+    """Read explicit class descriptions and labelled cue lists without guessing class order."""
+    def items(value):
+        parts = re.split(r"\s*(?:,|/|\bversus\b|\bvs\.?\s|\band\b|\bor\b)\s*", value, flags=re.I)
+        return [p.strip(" '\"*()") for p in parts if p.strip(" '\"*()")]
+
+    traits = []
+    for name in names:
+        subject = re.escape(name)
+        match = re.search(subject + r"\s*(?:[:(]|\b(?:have|wear|with|show|feature)\b)\s*([^.;\n)]+)", text, re.I)
+        if not match:
+            match = re.search(r"(?:look for|recognize)\s+([^.;\n]+?)\s+to identify\s+" + subject, text, re.I)
+        clause = match[1] if match else ""
+        for other in names:
+            if other != name:
+                clause = re.split(r"(?:,?\s+(?:while|whereas|and)\s+|,\s*)" + re.escape(other) + r"\b", clause, flags=re.I)[0]
+        traits.append(" and ".join(items(clause)))
+    def values(pattern):
+        match = re.search(pattern + r"\s*(?::|=|include\b|are\b|like\b|such as\b)\s*([^.;\n]+)", text, re.I)
+        return items(match[1]) if match else []
+    causal = values(r"(?:true features?|true cues?|causal traits?)")
+    distractors = values(r"(?:distractors?|spurious (?:features?|cues?)|props)")
+    return {"true": [trait or cue for trait, cue in zip(traits, (causal + ["", ""])[:2])],
+            "spurious": distractors[:2], "noise": distractors[2:4]}
+
+
+def apply_classifier_identity(config, template, previous, request=""):
     theme = config["theme"]
     keys = ("class0", "class1", "trueFeature", "spuriousFeatures")
     if previous:
@@ -223,29 +353,38 @@ def apply_classifier_identity(config, template, previous):
     labels = theme["featureLabels"]
     stock = template["theme"]
     custom = names != stock["options"] or any(key in theme for key in keys)
-    for role, key in (("true","trueFeature"),("spurious","spuriousFeatures")):
-        feature = roles[role]
-        spec = theme.get(key)
-        if spec and role == "spurious":
-            spec = spec[0]
+    # Prefer the user's labelled clauses. Model-written tutorial and hint prose
+    # also carry concrete traits when a compact bundle omits structured values.
+    requested = requested_traits(request, names)
+    described = requested_traits("\n".join(theme.get(k, "") for k in ("tutorial", "hint")), names) if custom else {}
+    fallback = {"true": ("Shape", ["Rounded outline", "Angular outline"]),
+                "spurious": ("Accessory", ["Striped accessory", "Spotted accessory"]),
+                "noise": ("Decoration", ["Plain trim", "Patterned trim"])}
+    for role, feature in roles.items():
+        spec = {"true": theme.get("trueFeature"), "spurious": (theme.get("spuriousFeatures") or [None])[0]}.get(role)
         if isinstance(spec, str):
-            spec = {"name":spec}
+            spec = {"name": spec}
         values = feature["values"]
         if role == "true":
             rule = config["mechanics"]["class_rule"]
-            values = [rule["class_a_value"],rule["class_b_value"]]
+            values = [rule["class_a_value"], rule["class_b_value"]]
         if spec:
             labels[feature["name"]] = spec["name"]
-        if custom:
-            cue = labels.get(feature["name"],role)
-            if cue in stock["featureLabels"].values():
-                cue = "Identity mark" if role == "true" else "Surface cue"
-                labels[feature["name"]] = cue
+        if custom or any(requested[role]):
+            if not spec and labels.get(feature["name"]) in stock["featureLabels"].values():
+                labels[feature["name"]] = fallback[role][0]
             for i, value in enumerate(values):
-                if spec and "values" in spec:
+                explicit = (requested[role] + ["", ""])[i]
+                inferred = (described.get(role, []) + ["", ""])[i]
+                if explicit:
+                    labels[value] = explicit
+                elif spec and "values" in spec:
                     labels[value] = spec["values"][i]
-                elif labels.get(value) in stock["featureLabels"].values():
-                    labels[value] = names[i]+" mark" if role=="true" else ("Quiet " if i==0 else "Bright ")+cue
+                elif labels.get(value) in {*stock["featureLabels"].values(), f"{names[i]} mark",
+                                           "Quiet Surface cue", "Bright Surface cue"}:
+                    labels[value] = inferred or fallback[role][1][i]
+            if spec and "values" in spec:
+                spec["values"] = [labels[value] for value in values]
     if custom or labels != stock["featureLabels"]:
         replacements = dict(zip(stock["options"],names))
         for feature in template["mechanics"]["features"]:
@@ -304,6 +443,13 @@ def unchanged_game(original, response):
             authored_theme(response)==authored_theme(original))
 
 
+def environment_name(name):
+    # Older tier fallbacks appended procedural layout slugs to custom settings.
+    return re.sub(r"(?:\s*[·,–—:]\s*|\s+-\s+)(?:space[- ]station|reactor[- ]core)"
+                  r"(?: architecture)?\s*$|\s+(?:space[- ]station|reactor[- ]core) architecture\s*$",
+                  "", name, flags=re.I)
+
+
 def tier_base(source, level, previous, used_layouts):
     config = tier_default(source, level)
     if not previous:
@@ -322,8 +468,8 @@ def tier_base(source, level, previous, used_layouts):
             if origin in ("forest-edge", "misty-hollow", "ancient-ruins"):
                 room["props"] = list(prior["environment"]["props"])
             break
-    room = dict(room, setting_name=f"{prior['environment']['setting_name']} · {room['layout'].replace('-', ' ')}")
-    for key in ("subtitle", "setting", "tutorial", "practice", "hint", "axes", "sources", "classLabels"):
+    room = dict(room, setting_name=f"{environment_name(prior['environment']['setting_name'])} · Area {level}")
+    for key in ("subtitle", "setting", "tutorial", *UI_KEYS, "hint", "axes", "sources", "classLabels"):
         if key in prior:
             theme[key] = copy.deepcopy(prior[key])
     theme.update(title=prior["title"], environment=room)
@@ -368,7 +514,22 @@ def unpack_levels(response, level):
                 break
             key, start = following.group(1), end + following.end()
         return levels
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    game = data.get("game")
+    if isinstance(game, dict):
+        data = {**game, **{key: value for key, value in data.items() if key != "game"}}
+        lift_ui(data, ui_fields(game))
+    levels = data.pop("levels", None)
+    if isinstance(levels, list):
+        levels = {f"level{number}": entry for number, entry in enumerate(levels[:3], 1)}
+    if isinstance(levels, dict):
+        for number in (1, 2, 3):
+            key = f"level{number}"
+            entry = levels.get(key, levels.get(str(number)))
+            if entry is not None:
+                data.setdefault(key, entry)
+    return data
 
 
 def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT, log=LOG, generate_sprites=False,
@@ -376,6 +537,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     generate_sprites = generate_sprites or animated_sprites is True
     started = monotonic()
     source = GAMES / archetype / "source"
+    exemplar = tier_default(source, level)
     run_id = uuid4().hex
     timestamp = datetime.now(timezone.utc).isoformat()
     common = dict(archetype=archetype, topic=topic, theme=theme, level=level, model=client.model,
@@ -386,6 +548,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     if previous and inherited_providers is None and previous.with_suffix(".meta.json").is_file():
         inherited_providers = json.loads(previous.with_suffix(".meta.json").read_text()).get("asset_providers")
     providers = dict(inherited_providers or {})
+    provider_errors = []
     sprite_error = None
     prior_tier = int(previous.stem[-1]) if previous and re.search(r"_L[123]$",previous.stem) else 1
     messages = build_messages(source, archetype, topic, instruction if revision is not None else theme, level,
@@ -423,7 +586,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     if bundle is not None and not previous:
         messages[0]["content"] = "Return one compact JSON level bundle. Apply the requested setting and respect the supplied schema for all overridden fields."
         messages.append({"role": "user", "content": f"Produce all tiers in ONE JSON object. Write level{level} first, "
-                         'then the other level keys (level1, level2, level3). Each value may patch theme and top-level world_physics. For physical edits return only world_physics patches. '
+                         'then the other level keys (level1, level2, level3). Each value may patch theme and top-level world_physics and tilemap. For physical edits return only world_physics patches. '
                          'Include only changed fields. Tier-specific mechanics and missing theme fields '
                          'come from validated templates. Use distinct environments. Stay under 1400 tokens.'})
     fallback_reason = None
@@ -439,7 +602,11 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
             if bundle is None:
                 response = client.complete(messages)
                 messages.append({"role": "assistant", "content": response})
-                config = parse_config(response)
+                config = unpack_levels(response, level)
+                if f"level{level}" in config:
+                    envelope = config
+                    config = envelope[f"level{level}"]
+                    lift_ui(config, ui_fields(envelope))
             else:
                 key = f"level{level}"
                 if not previous:
@@ -453,10 +620,17 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                         fallback_reason = f"Gateway timeout. Using the local starting configuration. {exc}"
                         bundle[key] = {"theme": {}}
                 entry = bundle.get(key)
+                shared_ui = ui_fields(bundle)
+                lift_ui(entry, shared_ui)
+                if (isinstance(entry, dict) and entry.get("archetype") in (archetype, exemplar["archetype"])
+                        and set(entry) <= {"archetype", "theme", "world_physics", "tilemap"}):
+                    entry.pop("archetype")
                 if revision and isinstance(entry, dict) and isinstance(entry.get("world_physics"), dict):
                     # Providers sometimes echo the complete original along with a physical edit.
                     if unchanged_game(revision,entry):
-                        entry = {"world_physics": edits_since(revision.get("world_physics",{}),entry["world_physics"])}
+                        geometry = edits_since(revision.get("world_physics",{}),entry["world_physics"])
+                        entry = {k:entry[k] for k in ("tilemap",) if k in entry and entry[k]!=revision.get(k)}
+                        entry["world_physics"] = geometry
                 original = revision
                 if previous and bundle.get("_physics_revision"):
                     original = (revision_levels or {}).get(level)
@@ -464,12 +638,13 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 if previous and (not isinstance(entry, dict) or attempt > 1):
                     fallback_reason = "Derived from the accepted level using the local tier template."
                     config = base
-                elif (isinstance(entry, dict) and entry and set(entry) <= {"theme","world_physics"}
+                elif (isinstance(entry, dict) and entry and set(entry) <= {"theme","world_physics","tilemap"}
                       and isinstance(entry.get("theme", {}), dict)):
                     physics_patch = entry.get("world_physics")
-                    if not previous and physics_patch is not None:
-                        bundle["_shared_physics"] = physics_patch
+                    if not previous and (physics_patch is not None or "tilemap" in entry):
+                        bundle["_shared_physics"] = physics_patch or {}
                         bundle["_physics_revision"] = bool(revision and not entry.get("theme"))
+                    base["tilemap"] = entry.get("tilemap")
                     base.pop("world_physics", None)
                     if not previous and not revision:
                         base["theme"]["title"] = theme.strip() or base["theme"]["title"]
@@ -488,6 +663,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
         except ValueError as exc:
             category, error = "json_parse_error", str(exc)
         else:
+            normalize_required_ui(config, exemplar, archetype)
             retained_level = None
             if (bundle or {}).get("_physics_revision"):
                 retained_level = revision or (revision_levels or {}).get(level)
@@ -505,7 +681,11 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 patch = config.get("world_physics", {}) if physics_patch is None else physics_patch
                 if previous_config and bundle is not None and (not isinstance(entry,dict) or attempt>1):
                     patch = {}
+                    config.pop("tilemap",None)
                 config["world_physics"] = patch_world(defaults,merge(shared,patch))
+                world = config["world_physics"]
+                if isinstance(world,dict) and isinstance(world.get("obstacles"),list):
+                    world["obstacles"] = world["obstacles"][:2]
                 if previous_config and bundle is not None and attempt == 3 and not patch:
                     # A shared obstacle may fit the anchor but intersect a sibling's own checkpoint.
                     config["world_physics"] = copy.deepcopy(previous_config["world_physics"])
@@ -516,15 +696,30 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     config["theme"]["subtitle"] = identity["subtitle"]
                 else:
                     config["theme"].pop("subtitle", None)
+            if archetype == "Feature-Classifier":
+                try:
+                    normalize_classifier_labels(config)
+                except (KeyError, AttributeError, TypeError):
+                    pass  # Structural errors go through the normal schema repair.
             if archetype == "Feature-Classifier" and not retained_level:
                 try:
                     if label_source:
                         inherit_classifier_labels(config, label_source)
-                    apply_classifier_identity(config,tier_default(source,level),previous_config)
+                    if bundle is not None and instruction:
+                        bundle["_cue_request"] = instruction
+                    cue_request = instruction or (bundle or {}).get("_cue_request") or f"{topic}\n{theme}"
+                    apply_classifier_identity(config, exemplar, previous_config, cue_request)
                     annotate_classifier_cases(config["mechanics"])
                 except (KeyError, TypeError, AttributeError, IndexError):
                     pass  # The validator reports incomplete structures in the repair prompt.
+            rows = config.pop("tilemap",None) if isinstance(config,dict) else None
             error = validate(source, archetype, config, level)
+            if error is None:
+                if not valid_tilemap(rows, level):
+                    rows = curated_tilemap(config["world_physics"],level)
+                    if not valid_tilemap(rows, level):
+                        rows = tier_default(source,level)["tilemap"]
+                config["tilemap"] = clear_walking_lanes(rows,config["world_physics"])
             if error is None and "environment" not in config["theme"]:
                 error = "Supply the complete theme.environment for the requested setting."
             if error is None and "layout" not in config["theme"]["environment"]:
@@ -549,7 +744,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     if progress:
                         progress(f"Level {level} · generating character sprites")
                     try:
-                        sprite_error = attach_sprites(config, previous_config, source, archetype, level, output.parent, stem, animated_sprites, providers)
+                        sprite_error = attach_sprites(config, previous_config, source, archetype, level, output.parent, stem, animated_sprites, providers, provider_errors)
                     except ImageGenerationError as exc:
                         sprite_error = str(exc)
                     if sprite_error:
@@ -573,6 +768,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     if not config["theme"].get(field):
                         providers[slot] = "procedural"
                 meta["asset_providers"] = providers
+                meta["provider_errors"] = provider_errors
                 if previous:
                     meta[f"source_level{prior_tier}_file"] = str(previous.relative_to(root))
                 for path, data in [(output.with_suffix(".meta.json"), meta), (output, config)]:
@@ -589,6 +785,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                   failure_categories=failures, latency_ms=round((monotonic()-started)*1000))
     if output:
         record["asset_providers"] = providers
+        record["provider_errors"] = provider_errors
     if sprite_error is not None:
         record["sprite_error"] = sprite_error
     if api_errors:

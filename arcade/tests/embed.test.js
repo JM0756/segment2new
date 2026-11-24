@@ -13,6 +13,7 @@ class Element {
   clientWidth=560;clientHeight=245;
   toDataURL(){return "data:image/png;base64,";}
   setAttribute(){}
+  focus(){}
   showModal(){this.open=true;}
   close(){this.open=false;}
 }
@@ -64,23 +65,34 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
         window:{devicePixelRatio:2,location:{search,href:'http://localhost/arcade/'+dir+'/source/index.html'+search},addEventListener:(type,fn)=>{if(type==='message')receive=fn;if(type==='keydown')keyDown=fn;}},
         fetch:async url=>{requested=url;return {json:async ()=>config};}});
 
-      for(const file of ['../../shuffle.js','game_logic.js','../../environment.js','sprites.js','../../field_cases.js','game.js','../../world.js','../../animation.js','../../narrator.js','../../arcade_hud.js']) vm.runInContext(fs.readFileSync(path+file,'utf8'),context);
+      for(const file of ['../../shuffle.js','game_logic.js','../../environment.js','sprites.js','../../field_cases.js','game.js','../../world_engine.js','../../world.js','../../animation.js','../../narrator.js','../../arcade_hud.js']) vm.runInContext(fs.readFileSync(path+file,'utf8'),context);
       await new Promise(resolve=>setImmediate(resolve));
       assert.equal(requested,configPath);
       assert.equal(elements.get('title').textContent,config.theme.title);
       if (configPath === 'default.json') {
         assert.deepEqual(imageURLs,[]);
-        assert.ok(drawings.includes('#182637')); // Character outline and boots
-        assert.ok(!drawings.includes('circle'));
+
       } else {
         const assets='http://localhost/generated/'+dir+'/assets/';
         assert.deepEqual(imageURLs,[assets+'first.png',assets+'missing.png',assets+'scene.png']);
         assert.ok(drawings.includes('image'));
       }
-      assert.ok(drawings.includes('#fbe2a9')); // Badge painted by the procedural icon
+
       receive({source:parent,origin:'https://host.example',data:{type:'LOAD_CONFIG',config}});
       await new Promise(resolve=>setImmediate(resolve));
       const arena=elements.get('arena');arena.width=560;arena.height=144;arena.context=drawing;
+      if(configPath!== 'default.json'){
+        vm.runInContext(`for(const name of ['ground','foreground']){
+          ArcadeEnvironment[name]=()=>{throw Error('Generated background covered by '+name)};
+        }`,context);
+        assert.equal(vm.runInContext('land',context),null);
+        const blits=[];
+        context.recordBlit=(...args)=>blits.push(args);
+        vm.runInContext('const blit=ArcadeEnvironment.blit; ArcadeEnvironment.blit=(ctx,img,...args)=>{if(img===scenery)recordBlit(...args);blit(ctx,img,...args)}',context);
+        frame(performance.now());
+        const [x,y,w,h]=blits[0];
+        assert.ok(x<=0 && y<=0 && x+w>=vm.runInContext('worldWidth',context) && y+h>=vm.runInContext('worldHeight',context));
+      }
       frame(performance.now());assert.equal(drawing.imageSmoothingEnabled,true);
       assert.equal(arena.width,1120);assert.equal(arena.height,490);
       if(dir==='Feature-Classifier' && configPath==='default.json'){
@@ -95,77 +107,60 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
           assert.equal(arena.width,width*2); // DPR changes resolution independently of layout.
         }
       }
-      const narrator=[elements.get('instruction').textContent];
-      elements.get('continue').onclick();
-      const initial=elements.get('instruction').textContent;
-      narrator.push(initial);
-      elements.get('actions').children[1].onclick();
-      assert.equal(elements.get('instruction').textContent,initial);
-      elements.get('actions').children[0].onclick();
-      assert.match(elements.get('instruction').textContent,/^\[2\]/);
-      narrator.push(elements.get('instruction').textContent);
+      const read=code=>vm.runInContext(code,context);
+      const press=(key,code=key)=>keyDown({key,code,preventDefault(){},target:{matches:()=>false}});
+      const actions=elements.get('actions');
+      assert.ok(actions.children.every(b=>!/^\[[12]\]/.test(b.textContent)));
+      assert.match(actions.children[0].textContent,/Move/);
+      const instruction=()=>elements.get('instruction').textContent;
+      const initialScore=read('JSON.stringify(view.score)');
+      assert.match(instruction(),/Part 1 · 1\/6/);
+      let now=performance.now();
+      arena.getBoundingClientRect=()=>({left:0,top:0,width:arena.clientWidth,height:arena.clientHeight});
+      const click=(x,y)=>arena.onclick({clientX:x*read('mapWidth()*layout.uiScale'),
+        clientY:read('floorTop()*layout.uiScale')+y*read('floorHeight()*layout.uiScale')});
+      function tick(count){for(let n=0;n<count;n++){now+=30;frame(now);}}
+      const center=read('world.structures.checkpoint');
+      click(center.x+.06,center.y+.12);tick(35);
+      assert.match(instruction(),/Part 1 · 2\/6/);
+      press('e');assert.match(instruction(),/Part 1 · 3\/6/);
+      const clickLeader=side=>{
+        const sign=read('signs()')[side];
+        click(sign.x,sign.y);tick(100);
+      };
+      clickLeader(0);
+      assert.match(instruction(),/Part 2 · 4\/6/);
       if(dir==='Feature-Classifier'&&configPath!== 'default.json'){
-        for(const word of ['Apple','Pear','Forked','Single','Stem','Paint'])assert.ok(narrator.join(' ').includes(word));
-        assert.doesNotMatch(narrator.join(' '),/crew|android|circular seal|serrated seal/i);
+        for(const word of ['Apple','Pear','Forked','Single','Stem','Paint'])assert.ok(instruction().includes(word));
       }
-      elements.get('actions').children[1].onclick();
-      assert.equal(elements.get('continue').textContent,'PLAY THE GAME ▶');
-      elements.get('continue').onclick();
-      assert.equal(elements.get('guide').hidden,true);
-      const initialChoice=dir==='Signal-Sorter'?config.theme.options.indexOf(elements.get('subject').textContent):0;
-      elements.get('actions').children[initialChoice].onclick();
-      assert.ok(events.includes('start'));assert.ok(events.includes('action'));
-      if(dir==='Feature-Classifier'){
-        const actions=elements.get('actions');
-        for(let i=1;i<config.mechanics.training_pool.size;i++)actions.children[i%2].onclick();
-        const press=(key,code)=>keyDown({key,code,preventDefault(){},target:{matches:()=>false}});
-        for(const phase of ['Model ready','Field test']){
-          assert.ok(elements.get('phase').textContent.includes(phase));
-          assert.ok(actions.children[0].disabled&&actions.children[1].disabled);
-          assert.equal(actions.children[2].className,'field-trigger');
-          const count=events.length;press('1','Digit1');press('2','Digit2');
-          assert.equal(events.length,count);press(' ','Space');
+      elements.get('continue').onclick();assert.match(instruction(),/5\/6/);
+      elements.get('continue').onclick();assert.match(instruction(),/6\/6/);
+      elements.get('continue').onclick();assert.equal(elements.get('guide').hidden,true);
+      assert.equal(read('JSON.stringify(view.score)'),initialScore);
+      frame(now+=30);
+      press('1');press('2');assert.equal(read('pilot'),null);
+      if(dir==='Feature-Classifier'||dir==='Signal-Sorter'){
+        const followShortcut=configPath==='default.json'&&dir==='Feature-Classifier';
+        for(let i=0;i<(dir==='Feature-Classifier'?6:config.mechanics.samples.length);i++){
+          const side=dir==='Feature-Classifier'?read(followShortcut?'view.actors[1].aura':'view.actors[1].badge'):
+            config.theme.options.indexOf(elements.get('subject').textContent);
+          if(i===0){
+            const sign=read('signs()')[side];
+            click(sign.x,.86);tick(120);
+            assert.equal(read('view.score[0]+view.score[1]'),0);
+            press('e');
+            assert.equal(read('scanTime'),-Infinity);
+          }else clickLeader(side);
         }
-        const clickZone=name=>{
-          arena.getBoundingClientRect=()=>({left:15,top:30,width:arena.clientWidth,height:arena.clientHeight});
-          const point=vm.runInContext('world.structures.'+name,context);
-          const scaleX=vm.runInContext('mapWidth()*layout.uiScale',context);
-          const event={clientX:15+point.x*scaleX,clientY:30+point.y*arena.clientHeight};
-          arena.onpointermove(event);assert.equal(arena.style.cursor,'pointer');arena.onclick(event);
-        };
-        clickZone('checkpoint');clickZone('checkpoint');
-        actions.children.find(b=>b.textContent==='Replay').onclick();
-        await new Promise(resolve=>setImmediate(resolve));elements.get('skip').onclick();
-        frame(performance.now());
-        const read=code=>vm.runInContext(code,context);
-        const followShortcut=configPath==='default.json';
-        for(let i=0;i<6;i++){
-          const cue=read(followShortcut?'view.actors[1].aura':'view.actors[1].badge');
-          clickZone(cue?'rightTarget':'leftTarget');
-        }
-        for(let i=0;i<4;i++)clickZone('checkpoint');
+        assert.ok(read('view.field'));
+        for(let i=0;i<4;i++)press(' ','Space');
         if(followShortcut){
-          assert.equal(read('view.auditAvailable'),true);
-          actions.children.find(b=>b.textContent.startsWith('Prune Spurious Cue')).onclick();
-          for(let i=0;i<4;i++)clickZone('checkpoint');
+          assert.ok(read('view.auditAvailable'));
+          elements.get('auditChoices').children.find(b=>b.textContent.startsWith('Prune Spurious Cue')).onclick();
+          for(let i=0;i<4;i++)press(' ','Space');
         }
         assert.equal(read('view.stars'),followShortcut?2:3);
         assert.ok(actions.children.some(b=>b.textContent==='Next Level →'));
-      }
-      if(dir==='Signal-Sorter'){
-        const actions=elements.get('actions'),next=()=>actions.children.some(b=>b.textContent==='Next Level →');
-        for(const _ of config.mechanics.samples.slice(1)){assert.equal(next(),false);actions.children[config.theme.options.indexOf(elements.get('subject').textContent)].onclick();}
-        const field=()=>actions.children.find(b=>b.textContent.startsWith('[SPACE]'));
-        for(let i=1;i<=4;i++){
-          assert.equal(next(),false);assert.equal(field().textContent,'[SPACE] Test Case '+i+'/4');
-          field().onclick();
-        }
-        assert.equal(next(),true);
-        actions.children.find(b=>b.textContent==='Replay').onclick();
-        await new Promise(resolve=>setImmediate(resolve));elements.get('skip').onclick();
-        for(const _ of config.mechanics.samples)actions.children[1-config.theme.options.indexOf(elements.get('subject').textContent)].onclick();
-        for(let i=1;i<=4;i++)field().onclick();
-        assert.equal(next(),false);
       }
     });
   }

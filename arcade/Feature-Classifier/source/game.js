@@ -64,7 +64,9 @@ function createRound(config) {
         note='Audit failed: removing '+labels[core]+' erased the reliable class signal. Accuracy 0%.';
         return;
       }
-      model=GameLogic.train(m,rows,m.features.filter(f=>f.role==='true'));
+      // The audit verifies training labels against the retained causal cue.
+      const verified=rows.map(row=>({...row,label:GameLogic.label(m,row.item)}));
+      model=GameLogic.train(m,verified,m.features.filter(f=>f.role==='true'));
       beginTest();note='Shortcut pruned. Evaluate the model again (up to two stars).';
     }
   };

@@ -23,7 +23,7 @@ function createRound({mechanics:m,theme:t}) {
           ' (false alarm ×'+(m.falseAlarmCost||1)+', miss ×'+(m.missCost||1)+')',
         actors:records.map(([s,c],n)=>({slot:c,badge:c,aura:auras[n],label:t.options[c]+' · '+s})),note,done,
         legend:['RISK · score carried by each agent','CUTOFF · scores at or above it trigger an alert'],
-        guide:moves?'Step 2/2 · Submit the cutoff with the lowest error cost [SPACE].':'Step 1/2 · Lower or raise the alert cutoff [1] [2].',
+        guide:moves?'Step 2/2 · Submit the cutoff with the lowest error cost [SPACE].':'Step 1/2 · Use E at the left or right sensor to adjust the cutoff.',
         submit:'Evaluate checkpoint'};
     },
     fieldCases(){return records.map(([score,label])=>{

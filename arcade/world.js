@@ -69,6 +69,12 @@ const ArcadeWorld = (() => {
     return arc.some((p,i)=>i && boxes.some(b=>crosses(arc[i-1],p,b)))?points:arc;
   }
   function route(from,to,world){
+    if(world.grid){
+      const engine=typeof module==='undefined'?WorldEngine:require('./world_engine');
+      const points=engine.path(world.grid,from,to);
+      const length=points.reduce((n,p,i)=>i?n+distance(points[i-1],p):0,0);
+      return {points,length,duration:length*1900/world.surface.speedMultiplier,drag:world.surface.drag};
+    }
     const boxes=world.obstacles.map(bounds);
     const nodes=[safePoint(from,boxes),safePoint(to,boxes)];
     for(const b of boxes)for(const x of [b.left,b.right])for(const y of [b.top,b.bottom]){
