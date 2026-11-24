@@ -118,16 +118,19 @@ function closeChat(){
 }
 function play(item,file,requested){
   active=item;closeChat();passedRun=false;
-  const storageKey='arcade-progress-v1/'+item.game;
-  unlocked=sessionUnlocks.get(item.game)||0;
-  try{
-    const stored=Number(localStorage.getItem(storageKey));
-    if([0,1,2,3].includes(stored))unlocked=Math.max(unlocked,stored);
-  }catch{}
   const first=item.levels[1]||file;
   const paths=[item.preview_path||first,first,item.levels[2],item.levels[3]];
   const lastLevel=paths[2]?(paths[3]?3:2):1;
   activeGameId=ArcadeTutorial.gameId(first,location.origin);
+  const classifier=item.game==='Feature-Classifier';
+  unlocked=sessionUnlocks.get(classifier?activeGameId:item.game)||0;
+  if(!classifier||activeGameId===item.game){
+    try{
+      const stored=Number(localStorage.getItem('arcade-progress-v1/'+item.game));
+      if([0,1,2,3].includes(stored))unlocked=Math.max(unlocked,stored);
+    }catch{}
+  }
+  if(classifier)unlocked=Math.max(unlocked,ArcadeProgress.unlocked(ArcadeProgress.read(activeGameId)));
   const tutorialComplete=ArcadeTutorial.has(activeGameId);
   if(tutorialComplete)unlocked=Math.max(1,unlocked);
   level=tutorialComplete?Progression.enter(Math.min(unlocked,lastLevel),requested||1):0;
@@ -136,6 +139,10 @@ function play(item,file,requested){
   if(Object.values(item.levels).includes(path))targetPath=path;
   const url=new URL('/arcade/'+item.game+'/source/index.html',location.origin);
   url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,lastLevel,game:item.game,gameId:activeGameId,run:runId});
+  if(classifier){
+    url.searchParams.set('unlocked',Math.min(lastLevel,unlocked));
+    url.searchParams.set('progress',JSON.stringify(ArcadeProgress.read(activeGameId)));
+  }
   if(level>0 && tutorialComplete)url.searchParams.set('transition','1');
   $('resumeLevel').hidden=level===0||Math.min(unlocked,lastLevel)<=level;
   $('resumeLevel').textContent='Resume Level '+Math.min(unlocked,lastLevel);
@@ -145,15 +152,25 @@ window.addEventListener('message',e=>{
   const m=e.data;
   if(!active||e.origin!==location.origin||e.source!==$('stage').contentWindow||
       m?.run!==runId||m.archetype!==active.game||m.level!==level)return;
+  const classifier=active.game==='Feature-Classifier';
+  if(classifier&&m.type==='ARCADE_SELECT'){
+    if(level>0&&Number.isInteger(m.targetLevel)&&m.targetLevel>=1&&m.targetLevel<=unlocked&&active.levels[m.targetLevel])
+      play(active,null,m.targetLevel);
+    return;
+  }
   if(m.type==='ARCADE_NEXT'){
     if(passedRun&&level<3)play(active,null,level+1);
     return;
   }
   if(m.type!=='ARCADE_PROGRESS')return;
-  passedRun=m.passed&&(level===0||m.accuracy>=75&&m.stars>=2);
+  passedRun=m.passed&&(level===0||m.accuracy>=75&&m.stars>=(classifier?1:2));
+  if(classifier&&level>0){
+    ArcadeProgress.record(activeGameId,level,passedRun?m.stars:0,m.score??0);
+    unlocked=Math.max(unlocked,ArcadeProgress.unlocked(ArcadeProgress.read(activeGameId)));
+  }
   unlocked=Progression.complete(unlocked,level,m);
   if(level===0 && passedRun)ArcadeTutorial.finish(activeGameId);
-  sessionUnlocks.set(active.game,unlocked);
+  sessionUnlocks.set(classifier?activeGameId:active.game,unlocked);
 });
 $('resumeLevel').onclick=()=>play(active,null,unlocked);
 let saveTimer;
@@ -162,7 +179,12 @@ $('saveProgress').onclick=()=>{
   const control=$('saveProgress');
   let status;
   try{
-    localStorage.setItem('arcade-progress-v1/'+active.game,String(unlocked));
+    if(active.game==='Feature-Classifier'){
+      localStorage.setItem('arcade_progress:'+activeGameId,JSON.stringify(ArcadeProgress.read(activeGameId)));
+    }
+    if(active.game!=='Feature-Classifier'||activeGameId===active.game){
+      localStorage.setItem('arcade-progress-v1/'+active.game,String(unlocked));
+    }
     control.dataset.saved='true';
     status='Progress saved';
   }catch{delete control.dataset.saved;status='Storage unavailable';}

@@ -33,17 +33,19 @@ test('counter-examples reward causal training; a failed shortcut model allows on
     }
     assert.deepEqual([aligned,inverted],[4,2]);
     assert.ok(round.view().spuriousReliance>=60);
-    round.audit(role);assert.equal(round.view().completed,0);
+    const key=config.mechanics.features.find(f=>f.role===role).name;
+    round.toggleFeature(key);assert.equal(round.view().completed,0);
     for(let i=0;i<4;i++)round.submit();
     assert.equal(round.view().success,false);assert.equal(round.view().auditAvailable,true);
-    round.audit(role);
+    round.toggleFeature(key);
+    round.validateAudit();
     if(role==='spurious'){
       for(let i=0;i<4;i++)round.submit();
       assert.equal(round.view().accuracy,100);assert.equal(round.view().stars,2);
       assert.equal(round.view().success,true);
     }else{
-      round.audit('spurious');
-      assert.equal(round.view().done,true);assert.equal(round.view().accuracy,0);
+      round.validateAudit();
+      assert.equal(round.view().done,true);assert.equal(round.view().success,false);
       assert.match(round.view().note,/reliable class signal/);
     }
   }
@@ -96,4 +98,43 @@ test('live split weights respond to causal and shortcut labels before the field 
     assert.equal(verified.side,before.side);
     assert.equal(verified.correct,round.view().verdict.correct);
   }
+});
+
+test('accurate training and field curveballs earn bonuses only once',()=>{
+  const round=createRound(config);
+  for(let i=0;i<6;i++)round.act(round.view().actors[1].badge);
+  assert.equal(round.view().bonusPoints,50);
+  assert.equal(round.view().points,110);
+  for(let i=0;i<5;i++)round.submit();
+  assert.equal(round.view().bonusPoints,100);
+  assert.equal(round.view().points,240);
+  assert.equal(round.view().stars,3);
+});
+
+test('best stars and scores survive reload independently per level and game',()=>{
+  const vm=require('node:vm'),fs=require('node:fs');
+  const script=fs.readFileSync(require.resolve('../tutorial.js'),'utf8')+';ArcadeProgress';
+  const records=new Map(),localStorage={getItem:k=>records.get(k),setItem:(k,v)=>records.set(k,v)};
+  for(const storage of [localStorage,undefined]){
+    let progress=vm.runInNewContext(script,{localStorage:storage});
+    progress.record('orchard',1,2,110);
+    progress.record('orchard',1,1,150);
+    progress.record('orchard',2,1,60);
+    if(storage)progress=vm.runInNewContext(script,{localStorage:storage});
+    assert.deepEqual(JSON.parse(JSON.stringify(progress.read('orchard'))),{1:{stars:2,score:150},2:{stars:1,score:60}});
+    assert.equal(progress.unlocked(progress.read('orchard')),3);
+    assert.equal(progress.unlocked(progress.read('reef')),1);
+  }
+});
+
+test('a shortcut that verifies three of four field cases earns one star',()=>{
+  const level=structuredClone(config);
+  level.mechanics.curveballs=['green','green','red','red'].map((aura,i)=>({
+    id:'case-'+i,item:{aura,core:i<3?'round':'spiky'}
+  }));
+  const round=createRound(level);
+  for(let i=0;i<6;i++)round.act(round.view().actors[1].aura);
+  for(let i=0;i<4;i++)round.submit();
+  assert.equal(round.view().accuracy,75);
+  assert.equal(round.view().stars,1);
 });

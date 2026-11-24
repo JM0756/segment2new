@@ -70,9 +70,23 @@ const shuffleDeck=typeof module==='undefined'?shuffled:require('../../shuffle.js
     candidates.sort((a,b) => b.accuracy - a.accuracy || a.priority - b.priority);
     return candidates[0];
   }
+  function ruleFormula(model, theme){
+    const labels=theme.featureLabels;
+    const terms=Object.entries(model.mapping).map(([value,side])=>
+      (side==='a'?'+1':'−1')+' × ['+labels[model.feature]+' = '+labels[value]+']');
+    return 'score = '+terms.join(' ')+' · score > 0 → '+theme.options[0]+'; otherwise → '+theme.options[1];
+  }
   function evaluateCase(cfg, model, item) {
     const expected = label(cfg, item), predicted = model.mapping[item[model.feature]];
     return {item, expected, predicted, passed:expected === predicted};
+  }
+  function validatePruning(cfg, training, fieldCases, removed) {
+    const retained = cfg.features.filter(feature => !removed.has(feature.name));
+    const candidate = retained.length ? train(cfg, training, retained) : null;
+    const results = fieldCases.map(({item}) => candidate ? evaluateCase(cfg, candidate, item) :
+      {item, expected: label(cfg, item), predicted: null, passed: false});
+    const accuracy = 100 * results.filter(result => result.passed).length / results.length;
+    return {results, accuracy, success: accuracy >= 75 && !removed.has(cfg.class_rule.feature)};
   }
   function evaluate(cfg, model) {
     return cfg.curveballs.map(cb => ({id:cb.id, ...evaluateCase(cfg, model, cb.item)}));
@@ -81,7 +95,7 @@ const shuffleDeck=typeof module==='undefined'?shuffled:require('../../shuffle.js
     const values = {true_feature: role(cfg,'true').name, spurious_feature: role(cfg,'spurious').name, learned_feature: model.feature};
     return cfg.hints[passed ? 'on_success' : 'on_failure'].replace(/\{(\w+)\}/g, (m,k) => values[k] ?? m);
   }
-  const api = {themeFor, label, makePool, featureWeights, cueKey, train, evaluateCase, evaluate, hint};
+  const api = {themeFor, label, makePool, featureWeights, cueKey, train, ruleFormula, evaluateCase, validatePruning, evaluate, hint};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.GameLogic = api;
 })(globalThis);

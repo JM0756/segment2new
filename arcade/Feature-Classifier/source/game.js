@@ -10,7 +10,21 @@ function createRound(config) {
     if(cases.length>=4)break;
     if(!cases.some(other=>m.features.every(f=>item[f.name]===other[f.name])))cases.push(item);
   }
-  let model, test, pruned=null, index=0, correctLabels=0, note='';
+  let model, test, index=0, correctLabels=0, note='';
+  const removed=new Set();
+  let points=0, bonusPoints=0, auditResult=null;
+  function isCurveball(item){
+    const actual=Number(GameLogic.label(m,item)==='b');
+    return shortcut.values.indexOf(item[shortcut.name])===1-actual;
+  }
+  function reward(correct,item,base){
+    if(!correct)return;
+    points+=base;
+    if(isCurveball(item)){
+      bonusPoints+=25;
+      points+=25;
+    }
+  }
   function reliance() {
     const counter=rows.filter(row=>row.counterExample);
     const errors=counter.filter(row=>row.label!==GameLogic.label(m,row.item)).length;
@@ -36,8 +50,11 @@ function createRound(config) {
     view() {
       const state=test?.view(), ready=state?.completed===0, spuriousReliance=reliance();
       const item=state?.current || pool.initial[index].item;
-      const failedAudit=pruned==='true';
-      const weightRows=m.features.map((f,i)=>({key:f.name,name:labels[f.name],role:f.role,value:weights[i]}));
+      const auditAvailable=Boolean(state?.done&&!state.success&&model.feature!==core&&!auditResult);
+      const preview=auditAvailable?GameLogic.validatePruning(m,rows,verification,removed):auditResult;
+      const success=auditResult?.success??state?.success;
+      const stars=success?(auditResult?2:state.accuracy===100&&model.feature===core?3:1):0;
+      const weightRows=m.features.map((f,i)=>({key:f.name,name:labels[f.name],role:f.role,value:removed.has(f.name)?0:weights[i]}));
       const weightsByCue=Object.create(null);
       for(const {key,name,value} of weightRows){
         for(const alias of [name,name.toLowerCase(),GameLogic.cueKey(name),GameLogic.cueKey(key)]){
@@ -47,12 +64,13 @@ function createRound(config) {
       // Internal IDs win if a custom display label happens to match another cue's ID.
       for(const {key,value} of weightRows)weightsByCue[key]=value;
       return {...state,weights:weightRows,weightsByCue,
-        prediction:state?prediction(item):null,verification:[...verification], auditAvailable:state?.done&&!state.success&&spuriousReliance>=50&&!pruned,
-        auditChoices:[labels[core],labels[shortcut.name]], stars:state?.success?(pruned?2:3):0,
-        phase:failedAudit?'Audit failed':ready?'Model ready':state?.phase||'Training',
-        detail:failedAudit?'Model Audit · 0% accuracy':state?.detail,
-        accuracy:failedAudit?0:state?.accuracy??100*correctLabels/(rows.length||1),
-        score:counts, teamNames:t.options, metric:'Spurious Reliance',value:spuriousReliance,spuriousReliance,note:failedAudit?note:state?.note||note,
+        prediction:state?prediction(item):null,verification:[...verification], auditAvailable,points,bonusPoints,success,learnedRule:model&&GameLogic.ruleFormula(model,t),
+        projectedAccuracy:preview?.accuracy,auditResults:auditResult?.results,removed:[...removed],
+        stars,
+        phase:auditResult?(success?'Audit Win':'Audit failed'):ready?'Model ready':state?.phase||'Training',
+        detail:auditResult?'Model Audit · '+auditResult.accuracy+'% accuracy':state?.detail,
+        accuracy:auditResult?.accuracy??state?.accuracy??100*correctLabels/(rows.length||1),
+        score:counts, teamNames:t.options, metric:'Spurious Reliance',value:spuriousReliance,spuriousReliance,note:auditResult?note:state?.note||note,
         legend:['TRUE SIGNAL · '+labels[core],'TRAP · '+labels[shortcut.name]],
         actors:[{slot:0,badge:0,label:t.options[0],station:true},{slot:2,badge:Number(item[core]===m.class_rule.class_b_value),aura:shortcut.values.indexOf(item[shortcut.name]),art:shortcut.values.indexOf(item[shortcut.name]),label:labels[item[core]]+' / '+labels[item[shortcut.name]]},{slot:1,badge:1,label:t.options[1],station:true}],
         trace:[labels[core],labels[item[core]]],traits:Object.entries(item).map(([k,v])=>[labels[k],labels[v]]),
@@ -64,6 +82,7 @@ function createRound(config) {
     act(n) {
       if(test||![0,1].includes(n))return;
       const row=pool.initial[index++],label=n?'b':'a',correct=label===row.label;
+      reward(correct,row.item,10);
       counts[n]++;if(correct)correctLabels++;
       rows.push({...row,label});
       weights=GameLogic.featureWeights(m.features,rows);
@@ -73,26 +92,27 @@ function createRound(config) {
         if(counts.every(Boolean)){model=GameLogic.train(m,rows);beginTest();note='Wave complete. Test the model.';}
         else note='Classify the next wave with examples of both classes.';
       }
-      return {actor:1,destination:n,correct,text:correct?'+1':'Mislabelled!'};
+      return {actor:1,destination:n,correct,text:correct?(row.counterExample?'+35 Curveball':'+10'):'Mislabelled!'};
     },
     submit(){
       if(!test||test.view().done)return;
-      const result=prediction(test.view().current);
+      const item=test.view().current,result=prediction(item);
+      const id=m.curveballs.find(c=>c.item===item)?.id || 'field-'+(test.view().completed+1);
       test.step();
-      verification.push({...result,correct:test.view().verdict.correct});
+      const correct=test.view().verdict.correct;
+      verification.push({...result,id,item,curveball:isCurveball(item),actual:t.options[Number(GameLogic.label(m,item)==='b')],correct});
+      reward(correct,item,20);
     },
-    audit(role){
-      if(!this.view().auditAvailable||!['true','spurious'].includes(role))return;
-      pruned=role;
-      if(role==='true'){
-        note='Audit failed: removing '+labels[core]+' erased the reliable class signal. Accuracy 0%.';
-        return;
-      }
-      // The audit verifies training labels against the retained causal cue.
-      const verified=rows.map(row=>({...row,label:GameLogic.label(m,row.item)}));
-      weights=m.features.map(f=>f.role==='true'?100:0);
-      model=GameLogic.train(m,verified,m.features.filter(f=>f.role==='true'));
-      beginTest();note='Shortcut pruned. Evaluate the model again (up to two stars).';
+    toggleFeature(key){
+      if(!this.view().auditAvailable||!m.features.some(f=>f.name===key))return;
+      if(removed.has(key))removed.delete(key);
+      else removed.add(key);
+    },
+    validateAudit(){
+      if(!this.view().auditAvailable||!removed.size)return;
+      auditResult=GameLogic.validatePruning(m,rows,verification,removed);
+      note=removed.has(core)?'Removing '+labels[core]+' erased the reliable class signal.':
+        auditResult.success?'Audit Win · Shortcut pruned.':'The retained rule still misses too many field cases.';
     }
   };
 }

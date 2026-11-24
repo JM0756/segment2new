@@ -3,6 +3,12 @@ const $=id=>document.getElementById(id), params=new URLSearchParams(location.sea
 let configPath=params.get('config')||'default.json', generation=0, config, round, images=[], view;
 const tier=Number(params.get('level')??(configPath.match(/(?:level|_L)([123])\.json$/)?.[1]||1));
 let gameId=params.get('gameId')||ArcadeTutorial.gameId(configPath,window.location.href);
+if(params.has('progress')){
+  try{
+    const levels=JSON.parse(params.get('progress'));
+    for(const n of [1,2,3])if(levels[n])ArcadeProgress.record(gameId,n,levels[n].stars,levels[n].score);
+  }catch{}
+}
 const lastLevel=Number(params.get('lastLevel')||3);
 const tutorialMode=params.get('mode')==='tutorial';
 let reported=false, passed=false, guideStep=-1, lines=[], practiceActors=[];
@@ -57,9 +63,9 @@ function interactionTarget(){
   if(!escortMode || guideStep>2 || guideStep<0 && (view.field||view.done))return null;
   const pos=pilot.pos();
   const bay=WorldEngine.nearby(pos,signs());
-  if(bay)return {point:bay,type:'bay',hint:pilot.tethered?'Deliver to '+bay.label:view.readyToSubmit?'[Space] '+view.submit:'Collect the item at the scanner first.'};
+  if(bay)return {point:bay,type:'bay',hint:pilot.tethered?'Deliver to Bay 0'+(bay.index+1)+' · '+bay.label:view.readyToSubmit?'[Space] '+view.submit:'Collect the item at the scanner first.'};
   const pad=world.structures.checkpoint;
-  if(WorldEngine.nearby(pos,[pad]))return {point:pad,type:'pad',hint:pilot.tethered?'Deep scan':'Inspect and tether'};
+  if(WorldEngine.nearby(pos,[pad]))return {point:pad,type:'pad',hint:pilot.tethered?'Deep scan':'Inspect & Tether'};
   const vent=WorldEngine.nearby(pos,world.hazards);
   if(vent)return {point:vent,type:'vent',hint:vent.active?'Disable vent':'Enable vent'};
   return null;
@@ -87,7 +93,7 @@ function interactHere(space=false){
     else choose(bay.index);
   }else if(space && guideStep<0 && view.readyToSubmit)submit();
 }
-let flight=null;
+let flight=null,auditOpened=false;
 let handoff=null,objective='';
 let scanTime=-Infinity;
 const targetPulse=[-Infinity,-Infinity];
@@ -99,10 +105,55 @@ function emit(event,detail={}) {
 function button(label,fn) {
   const b=document.createElement('button');b.textContent=label;b.onclick=fn;return b;
 }
+let audio=null,soundEnabled=false;
+const soundToggle=button('SOUND OFF',async()=>{
+  const Audio=window.AudioContext||window.webkitAudioContext;
+  if(!Audio)return;
+  soundEnabled=!soundEnabled;
+  try{
+    if(soundEnabled){audio??=new Audio();await audio.resume();chime(480);}
+  }catch{soundEnabled=false;}
+  soundToggle.textContent=soundEnabled?'SOUND ON':'SOUND OFF';
+  soundToggle.setAttribute('aria-pressed',String(soundEnabled));
+});
+soundToggle.className='sound-toggle';
+soundToggle.disabled=!(window.AudioContext||window.webkitAudioContext);
+soundToggle.setAttribute('aria-pressed','false');
+function chime(hz){
+  if(!soundEnabled||audio?.state!=='running')return;
+  const osc=audio.createOscillator(),gain=audio.createGain(),now=audio.currentTime;
+  osc.frequency.value=hz;gain.gain.setValueAtTime(.045,now);
+  gain.gain.exponentialRampToValueAtTime(.001,now+.13);
+  osc.connect(gain);gain.connect(audio.destination);osc.start(now);osc.stop(now+.14);
+  osc.onended=()=>{osc.disconnect();gain.disconnect();};
+}
+const cleared=document.createElement('section');
+cleared.className='stage-cleared';cleared.hidden=true;cleared.setAttribute('aria-label','Stage results');
+document.querySelector('.playfield').append(cleared,soundToggle);
+function renderClear(){
+  cleared.hidden=!passed||!view.done||guideStep>=0||Boolean(flight);
+  if(cleared.hidden)return;
+  const stars=view.stars??3,bonus=view.bonusPoints||0;
+  const hits=Math.round(view.completed*view.accuracy/100);
+  const title=document.createElement('h2'),summary=document.createElement('p'),card=document.createElement('div');
+  title.textContent='STAGE '+tier+' CLEARED!';
+  summary.textContent=config.theme.title+' — '+hits+'/'+view.completed+' Field Test Passed';
+  card.className='stage-card';
+  const rating=document.createElement('strong'),status=document.createElement('b'),score=document.createElement('p');
+  rating.textContent='★'.repeat(stars)+'☆'.repeat(3-stars);
+  status.textContent=['','1-STAR PASS','2-STAR MODEL AUDIT RECOVERY','3-STAR CLEAN PASS'][stars];
+  score.textContent=view.points!=null?'Total Score '+view.points+' (includes +'+bonus+' curveball bonus)':'Field Test score '+hits+' / '+view.completed+' · '+view.accuracy+'%';
+  card.append(rating,status,score);
+  const replay=()=>start(config,configPath);
+  if(stars<3)card.append(button('Replay Stage for 3 Stars',replay));
+  const next=tier<lastLevel?button('NEXT LEVEL',advance):button('PLAY AGAIN',replay);
+  next.className='next-stage';cleared.replaceChildren();cleared.append(title,summary,next,card);
+}
+let waves=[];
 function action(fn, inspection=false) {
   if(!round)return;
   const last=view.target;
-  const outcome=fn();pulse=performance.now();
+  const outcome=fn();chime(outcome?.correct===false?180:520);pulse=performance.now();
   if(inspection)scanTime=pulse;
   if(outcome?.destination!==undefined)scanTime=-Infinity;
   if(outcome?.destination!==undefined){
@@ -118,6 +169,7 @@ function action(fn, inspection=false) {
   if(!view.done){passed=false;reported=false;}
   if(view.done&&!reported){
     passed=view.success&&view.accuracy>=75;
+    if(escortMode&&!tutorialMode)ArcadeProgress.record(gameId,tier,view.stars,view.points);
     report('ARCADE_PROGRESS',passed,view.accuracy);
     reported=true;
   }
@@ -128,7 +180,7 @@ function action(fn, inspection=false) {
 }
 function report(type,won,accuracy){
   if(params.has('mode'))parent.postMessage({type,archetype:params.get('game'),level:tier,accuracy,
-    stars:tutorialMode?3:view.stars??(accuracy>=75?3:accuracy>=60?2:1),passed:won,run:params.get('run')},location.origin);
+    score:view.points,stars:tutorialMode?3:view.stars??(accuracy>=75?3:accuracy>=60?2:1),passed:won,run:params.get('run')},location.origin);
 }
 function guideInput(key){
   const next=ArcadeNarrator.next(guideStep,key);
@@ -186,6 +238,75 @@ function renderWeights(){
   $('verification').textContent=last?'FIELD TEST · '+view.completed+'/4 · '+last.specimen+' → '+last.name+
     (last.correct?' ✓ Verified':' ✗ Misclassified · '+last.role+' cue: '+last.cue):'';
 }
+function selectLevel(next){
+  if(params.has('mode')){
+    parent.postMessage({type:'ARCADE_SELECT',archetype:params.get('game'),level:tier,
+      targetLevel:next,run:params.get('run')},location.origin);
+    return;
+  }
+  const url=new URL(location.href);
+  const path=/_L[123]\.json$/i.test(configPath)?configPath.replace(/_L[123]\.json$/i,'_L'+next+'.json'):
+    configPath.replace(/[^/]*$/,next===1?'default.json':'level'+next+'.json');
+  url.searchParams.set('config',path);
+  url.searchParams.set('level',next);
+  url.searchParams.delete('next');
+  location.assign(url);
+}
+function renderHub(){
+  $('points').textContent='Score '+view.points+(view.bonusPoints?' · Curveball Bonus +'+view.bonusPoints:'');
+  const hub=$('levelHub'),levels=ArcadeProgress.read(gameId);
+  hub.replaceChildren();
+  for(let n=1;n<=lastLevel;n++){
+    const stars=levels[n]?.stars||0;
+    const b=button('Level '+n+' · '+'★'.repeat(stars)+'☆'.repeat(3-stars)+' · Best Score '+(levels[n]?.score||0),()=>selectLevel(n));
+    b.disabled=tutorialMode||n>Math.max(tier,Number(params.get('unlocked'))||0,ArcadeProgress.unlocked(levels));
+    if(n===tier)b.setAttribute('aria-current','step');
+    hub.append(b);
+  }
+}
+function renderClassifierAudit(){
+  $('learnedRule').textContent='Field Test rule · '+view.learnedRule;
+  const breakdown=$('breakdown');
+  breakdown.replaceChildren();
+  for(const [index,row] of view.verification.entries()){
+    const cell=document.createElement('p');
+    cell.textContent=row.id+(row.curveball?' · ♦ Curveball':'')+' · '+(row.correct?'✓ Verified':'✗ Misclassified')+' · Predicted '+row.name+' · Actual '+row.actual;
+    if(view.auditResults){
+      const result=view.auditResults[index];
+      const prediction=result.predicted?view.names[Number(result.predicted==='b')]:'No prediction';
+      cell.textContent+=' · After pruning '+prediction+' '+(result.passed?'✓':'✗');
+    }
+    breakdown.append(cell);
+  }
+  const choices=$('auditChoices');
+  choices.replaceChildren();
+  for(const feature of view.weights){
+    const row=document.createElement('div'),label=document.createElement('span'),bar=document.createElement('progress');
+    label.textContent='['+(feature.role==='true'?'CAUSAL':feature.role.toUpperCase())+'] '+feature.name+' · '+feature.value+'%';
+    bar.max=100;bar.value=feature.value;bar.setAttribute('aria-label',label.textContent);
+    row.append(label,bar);
+    if(view.auditAvailable){
+      const index=view.weights.indexOf(feature);
+      const toggle=button(view.removed.includes(feature.key)?'RESTORE':'PRUNE TO 0',()=>{
+        round.toggleFeature(feature.key);render();
+        $('auditChoices').children[index]?.children[2]?.focus();
+      });
+      toggle.setAttribute('aria-label',toggle.textContent+' · '+feature.name);
+      row.append(toggle);
+    }
+    choices.append(row);
+  }
+  $('projection').textContent=view.projectedAccuracy==null?'':'Projected Validation Accuracy · '+view.projectedAccuracy+'%';
+  const actions=$('auditActions');
+  actions.replaceChildren();
+  if(view.auditAvailable){
+    const run=button('RE-RUN VALIDATION',()=>{
+      reported=false;action(()=>round.validateAudit());$('modelAudit').close();
+    });
+    run.disabled=!view.removed.length;actions.append(run);
+  }
+  actions.append(button('Close',()=>$('modelAudit').close()));
+}
 function advance(){
   if(!passed || tier>=lastLevel)return;
   if(params.has('mode')){
@@ -239,13 +360,19 @@ function consoleReadout(guided){
     if(!guided && active?.aura!==undefined)traits.push(['Aura',active.aura?'Amber':'Cyan']);
     if(!guided && view.legend)traits.push(...view.legend.map(line=>['Cue',line]));
   }
+  waves=[];
   $('traits').replaceChildren();
   if(escortMode && !view.field && !guided && !pilot.tethered)traits=[];
   if(pilot?.tethered && view.trace && !traits.some(([key])=>key===view.trace[0]))traits=[view.trace,...traits];
   for(const [key,value] of traits){
     const cell=document.createElement('span'),label=document.createElement('small'),text=document.createElement('b');
     if(pilot?.traced && key===view.trace?.[0])cell.className='scan-trace';
-    label.textContent=key;text.textContent=value;cell.append(label,text);$('traits').append(cell);
+    label.textContent=key;text.textContent=value;cell.append(label,text);
+    const wave=document.createElement('canvas');
+    wave.className='trait-wave';wave.width=48;wave.height=12;wave.setAttribute('aria-hidden','true');
+    const role=view.weights?.find(f=>f.name===key||f.key===key)?.role;
+    waves.push({ctx:wave.getContext('2d'),jagged:role==='spurious'||role==='noise'||(!role&&key==='Aura')});
+    cell.append(wave);$('traits').append(cell);
   }
   $('subject').textContent=guided?t.title:view.traits && m.class_rule?'':view.subject;
   $('detail').textContent=guided?'':view.detail||'';
@@ -255,10 +382,10 @@ function render() {
   const guided=guideStep>=0;
   $('title').textContent=config.theme.title;
   $('title').title=config.theme.subtitle||'';
-  consoleReadout(guided);
+  consoleReadout(guided);renderClear();
   const scoreLabels=view.teamNames||(config.archetype==='threshold'?['Hits','False alarms']:['Verified','Errors']);
   for(let i=0;i<2;i++)$('team'+i).textContent=scoreLabels[i]+' '+view.score[i];
-  if(escortMode)renderWeights();
+  if(escortMode){renderWeights();renderHub();}
   else { $('metric').textContent=view.metric+' '+view.value+'%';$('meter').style.setProperty('--value',view.value+'%'); }
   $('guide').hidden=!guided;
   $('instruction').textContent=guided?lines[guideStep]:'';
@@ -272,11 +399,16 @@ function render() {
   const move=document.createElement('span');move.textContent='[WASD/Arrows] Move';
   $('actions').append(move,button('[E/Space] Interact',()=>interactHere()));
   const dialog=$('modelAudit');
-  if(dialog.open && (guided||!view.auditAvailable))dialog.close();
+  if(dialog.open && (guided||(escortMode?!view.done:!view.auditAvailable)))dialog.close();
   if(!guided){
     if(!view.instant&&!view.training){const trigger=button('[SPACE] '+(view.field&&view.completed===0?'Launch Field Test':view.submit),submit);trigger.disabled=Boolean(view.done||view.training||escortMode&&flight);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
     if(passed&&tier<lastLevel)$('actions').append(button('Next Level →',advance));
-    if(view.auditAvailable){
+    if(escortMode&&view.done){
+      renderClassifierAudit();
+      const openAudit=()=>{if(!dialog.open)dialog.showModal();};
+      $('actions').append(button('Model Audit',openAudit));
+      if(view.auditAvailable&&!flight&&!dialog.open&&!auditOpened){auditOpened=true;openAudit();}
+    }else if(view.auditAvailable){
       $('auditChoices').replaceChildren();
       ['true','spurious'].forEach((role,i)=>{
         const label=(i?'Prune Spurious Cue · ':'Prune True Feature · ')+view.auditChoices[i];
@@ -352,7 +484,7 @@ function drawMember(member,now,w,h){
     ctx.strokeText(text,x,ty);ctx.fillText(text,x,ty);ctx.restore();
   }
 }
-function drawFloorLandmarks(w,h,activity){
+function drawFloorLandmarks(w,h,activity,glow){
   const {checkpoint}=world.structures;
   const c=config.theme.palette||{};
   ctx.save();ctx.font='bold 11px monospace';ctx.textAlign='center';
@@ -362,6 +494,10 @@ function drawFloorLandmarks(w,h,activity){
     ctx.fillStyle=c.floor||'#283737';ctx.fillRect(x-half,y-3,half*2,11);
     ctx.fillStyle=color;ctx.fillRect(x-half,y-4,half*2,2);
     for(const end of [x-half,x+half-3])ctx.fillRect(end,y-4,3,12);
+    ctx.save();ctx.globalAlpha=.35+.55*glow;ctx.strokeStyle=color;
+    if(point===checkpoint){ctx.beginPath();ctx.ellipse(x,y+2,15+glow,3+glow,0,0,Math.PI*2);ctx.stroke();}
+    else{ctx.fillStyle='#fff';ctx.fillRect(x+half-4,y-6,3,3);}
+    ctx.restore();
     ctx.lineWidth=3;ctx.strokeStyle='#122126';ctx.fillStyle='#fff';
     ctx.strokeText(label,x,y+20,w*.24);ctx.fillText(label,x,y+20,w*.24);
   }
@@ -404,6 +540,8 @@ function paint(now){
   const sw=scenery.width*zoom,sh=scenery.height*zoom;
   ArcadeEnvironment.blit(ctx,scenery,(w-sw)/2,(worldHeight-sh)/2,sw,sh);
   if(land)ArcadeEnvironment.blit(ctx,land,0,0,w,worldHeight);
+  ArcadeHUD.drawAtmosphere(ctx,w,worldHeight,now,config.theme);
+  for(const wave of waves)ArcadeHUD.drawWave(wave.ctx,wave.jagged,now);
   ctx.translate(0,floorTop());
   let driven=null;
   if(pilot && (guideStep>=0 || !view.field && !view.done)){
@@ -464,7 +602,7 @@ function paint(now){
   const handler=driven||{...pilot.pos(),facing:1,moving:false};
   const hx=handler.x*mw,hy=handler.y*h;
   entries.push({footY:hy,draw:()=>{
-    contactShadow(hx,hy,11);
+    contactShadow(hx,hy,11+Math.sin(now*.003)*.6);
     ArcadeHUD.drawHandler(ctx,hx,hy,handler,handlerStyle,accent,now);
   }});
   }
@@ -499,7 +637,9 @@ function paint(now){
   const fixture=part=>ArcadeEnvironment.drawFixtures(ctx,mw,h,world,config.archetype,style,accent,activity,hover,lowProfile,now,cutoff,part);
   fixture('floor');
   fixture('entry');
-  drawFloorLandmarks(mw,h,activity);
+  const phase=ArcadeHUD.ambientPhase(now);
+  ArcadeHUD.drawConduits(ctx,mw,h,world.structures,phase,accent);
+  drawFloorLandmarks(mw,h,activity,phase.glow);
   for(const vent of world.hazards)ArcadeHUD.drawVent(ctx,vent,mw,h,accent,now);
   if(pilot?.tethered){
     const item=pilot.specimen();
@@ -512,13 +652,18 @@ function paint(now){
     ArcadeHUD.drawPrediction(ctx,hit.x,hit.y-75,flying,bay.x*mw,bay.y*h,impact);
   }
   const target=interactionTarget();
-  let hint=objective;
+  let hint=escortMode&&view.training&&guideStep<0?'Approach scanner to inspect.':objective;
   if(target){
     const tx=target.point.x*mw,ty=target.point.y*h-(target.type==='pad'?77:36);
     ctx.save();ctx.textAlign='center';ctx.font='bold 11px monospace';ctx.fillStyle='#122126';
     ctx.fillRect(tx-12,ty-11,24,14);ctx.fillStyle='#fff';ctx.fillText('[E]',tx,ty);ctx.restore();
     hint=target.type==='bay'&&!pilot.tethered?target.hint:'[E] '+target.hint;
   }else if(pilot?.tethered)hint='Escort the item to a destination bay.';
+  else if(!escortMode&&pilot&&guideStep<0&&!view.field&&!view.done){
+    const nearby=WorldEngine.nearby(pilot.pos(),signs());
+    if(nearby)hint='[E] '+nearby.label;
+    else if(WorldEngine.nearby(pilot.pos(),[checkpoint,...inspectablePoints()]))hint='[E] Inspect';
+  }
   if($('objective').textContent!==hint)$('objective').textContent=hint;
 
   if(feedback)ArcadeHUD.drawCallout(ctx,feedback,now);
@@ -534,7 +679,7 @@ function paint(now){
       ctx.fillRect(x-22,y-24,3,3);
       if(entity.aura||blink>.5)ctx.fillRect(x-18,y-28,2,2);
     }
-    const pose=ArcadeHUD.pose(now,i,vx,age,effect,walking?strideTime(now):now);
+    const pose=ArcadeHUD.pose(now,i,vx,age,effect,walking?strideTime(now):now*.23);
     contactShadow(x,y+11,14*pose.shadow);
     ctx.save();ctx.translate(x+pose.dx,y+11+pose.dy);ctx.rotate(pose.tilt);ctx.scale(pose.sx,pose.sy);
     rimLight();
@@ -583,7 +728,7 @@ async function start(data,path){
     physical=ArcadeWorld.forLegacyConfig(data,baseline.world_physics,materials);
   }
   if(id!==generation)return;
-  flight=null;escortMode=data.archetype==='classifier';lastChoice=null;
+  flight=null;auditOpened=false;escortMode=data.archetype==='classifier';lastChoice=null;
   lowProfile=Boolean(background?.naturalWidth);
   world=WorldEngine.project(data.tilemap||WorldEngine.legacyMap(physical,tier),physical,lowProfile,escortMode?tier:null);pilot=escortMode?WorldEngine.controller(world):null;handoff=null;held.clear();track=[];frameTime=performance.now();hover=null;entryPaths.clear();
   scenery=document.createElement('canvas');scenery.width=background?.naturalWidth||560;scenery.height=background?.naturalHeight||245;

@@ -103,3 +103,20 @@ test('station representatives and approaching specimens paint over the target do
   const actors=[{x,footY:y},{x:x+5,footY:y-28}];
   assert.ok(hud.stationDepth(station,actors,800,400)<Math.min(...actors.map(a=>a.footY)));
 });
+
+test('passive glow, conduit dots and 24 ambient particles advance without theme assets',()=>{
+  function frame(ms){
+    const dots=[];
+    const ctx={save(){},restore(){},beginPath(){},moveTo(){},lineTo(){},stroke(){},
+      fillRect(...bounds){assert.ok(bounds.every(Number.isFinite));dots.push(bounds);}};
+    const phase=hud.ambientPhase(ms);
+    hud.drawAtmosphere(ctx,800,450,ms);
+    hud.drawConduits(ctx,800,160,world.structures,phase,'#ace');
+    return {phase,dots};
+  }
+  const a=frame(0),b=frame(500);
+  assert.notEqual(a.phase.glow,b.phase.glow);
+  assert.ok(b.phase.travel>a.phase.travel);
+  assert.equal(b.dots.length,26);
+  for(let i=0;i<26;i++)assert.notDeepEqual(a.dots[i],b.dots[i]);
+});

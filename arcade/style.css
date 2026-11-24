@@ -35,3 +35,23 @@ button:disabled{opacity:.55}
 @media(max-height:420px){.console{padding:6px 10px}}
 
 #traits .scan-trace{border-color:#f2d787;background:#31483c;color:#ffedb7}
+
+#levelHub{display:flex;flex-wrap:wrap;gap:.4em;padding:.4em;background:#14252a}
+#levelHub button{flex:1 1 auto}
+#levelHub [aria-current]{border-color:#72d9ce}
+#modelAudit.classifier-audit{width:min(42em,90vw);max-width:90vw;max-height:85vh;overflow:auto}
+#breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,14em),1fr));gap:.5em}
+#breakdown p{padding:.6em;margin:0;background:#213d39}
+.classifier-audit #auditChoices>div{display:flex;align-items:center;flex-wrap:wrap;gap:.6em;margin:.5em 0}
+.classifier-audit progress{width:5em;accent-color:#64d3c9}
+#projection{display:block;margin:1em 0}
+#points{color:#9ee4cb}
+
+.sound-toggle{position:absolute;top:.6rem;right:.6rem;z-index:2;padding:.35em .7em;border-radius:2em;background:#142827db;font:600 .76rem monospace}
+.trait-wave{display:inline-block;width:3em;height:.8em;margin-left:.5em;vertical-align:middle}
+.stage-cleared{position:absolute;inset:0;display:grid;align-content:safe center;justify-items:center;gap:.55em;overflow:auto;padding:1rem;background:#073b32ed;color:white;text-align:center}
+.stage-cleared h2{font-size:clamp(1.35rem,4vw,3rem);letter-spacing:.03em}
+.stage-cleared .stage-card{display:grid;justify-items:center;gap:.35em;background:#102a28;padding:.65em 1.2em;border-radius:.6em}
+.stage-card strong{color:#ffdb78;font-size:1.25em}
+.stage-cleared .next-stage{border:0;border-radius:2em;padding:.5em 1.6em;background:white;color:#094132;font-weight:800}
+#learnedRule{padding:.65em .85em;background:#102321;border-left:3px solid #76d7bc;font-family:ui-monospace,monospace;overflow-wrap:anywhere}

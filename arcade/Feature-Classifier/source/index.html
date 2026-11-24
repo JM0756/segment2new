@@ -2,11 +2,12 @@
 <body><main class="arena-stage"><section class="playfield" aria-label="Arena"><canvas id="arena" tabindex="0" width="560" height="245" aria-label="Playable arena. Move with WASD or arrow keys. Press E to inspect, or E or Space at a class leader."></canvas>
 <header class="telemetry"><strong id="title"></strong><section aria-label="Live classifier feature weights" title="Training-label agreement for each cue. A single example gives 100% for every cue. Compare the percentages as more examples are sorted."><b>Live classifier feature weights</b><div id="weights"></div></section></header></section>
 <section class="console" aria-label="Game console">
-  <section class="objective"><h2 id="phase"></h2><p id="objective"></p><div class="scores"><span id="team0"></span><span id="team1"></span></div><output id="callout" aria-live="polite"></output>
+  <section class="objective"><h2 id="phase"></h2><p id="objective"></p><strong id="points"></strong><div class="scores"><span id="team0"></span><span id="team1"></span></div><output id="callout" aria-live="polite"></output>
     <aside id="guide" hidden aria-label="Narrator"><p id="instruction" aria-live="polite"></p><div><button id="continue">Next</button><button id="skip">Skip</button></div></aside>
   </section>
   <section class="task"><h2 id="itemId"></h2><strong id="subject"></strong><div id="traits"></div><p id="detail"></p><div id="sources"></div><label id="dial" hidden>Cutoff <input id="slider" type="range" min="0"></label></section>
   <nav class="keycaps" aria-label="Progress and controls"><h2 id="progress"></h2><div id="pips" aria-hidden="true"></div><output id="verification" aria-live="polite"></output><div id="actions"></div><button id="help">[?] Guide</button></nav>
 </section>
-<dialog id="modelAudit" aria-labelledby="auditTitle"><h2 id="auditTitle">Model Audit</h2><p>Which feature should the model prune?</p><div id="auditChoices"></div></dialog></main>
+<nav id="levelHub" aria-label="Level select"></nav>
+<dialog class="classifier-audit" id="modelAudit" aria-labelledby="auditTitle"><h2 id="auditTitle">Model Audit</h2><p id="learnedRule"></p><h3>Field Test Breakdown</h3><div id="breakdown"></div><h3>Feature reliance</h3><div id="auditChoices"></div><output id="projection" aria-live="polite"></output><div id="auditActions"></div></dialog></main>
 <script src="../../shuffle.js"></script><script src="game_logic.js"></script><script src="../../tutorial.js"></script><script src="../../environment.js"></script><script src="sprites.js"></script><script src="../../field_cases.js"></script><script src="game.js"></script><script src="../../world_engine.js"></script><script src="../../world.js"></script><script src="../../animation.js"></script><script src="../../narrator.js"></script><script src="../../arcade_hud.js"></script></body></html>

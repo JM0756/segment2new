@@ -1,6 +1,45 @@
 // Actor transforms are shared by diffusion art and the procedural characters.
 const ArcadeHUD = {
-  handlerStyle(theme){
+  ambientPhase(ms){
+    return {travel:ms*.00028%1,glow:.5+.5*Math.sin(ms*.0026)};
+  },
+  drawAtmosphere(ctx,w,h,ms,theme={}){
+    ctx.save();
+    ctx.globalAlpha=.32;
+    ctx.fillStyle=theme.environment?.accent_color||theme.accent||theme.palette?.team0||'#b9dfd7';
+    const bubbles=ArcadeHUD.handlerStyle(theme)==='diver';
+    for(let i=0;i<24;i++){
+      const speed=1+(i%5)*.18;
+      const x=((i*.61803*w+ms*.004*speed)%w)+Math.sin(ms*.0007+i)*3;
+      const y=h-(i*.38197*h+ms*(bubbles ? .011 : .005)*speed)%h;
+      if(bubbles){
+        ctx.strokeStyle=ctx.fillStyle;
+        ctx.beginPath();ctx.arc(x,y,1+i%2*.5,0,2*Math.PI);ctx.stroke();
+      }else ctx.fillRect(x,y,2+i%2,2);
+    }
+    ctx.restore();
+  },
+  drawConduits(ctx,w,h,structures,phase,color){
+    const {checkpoint,leftTarget,rightTarget}=structures;
+    ctx.save();ctx.strokeStyle=color;ctx.fillStyle=color;
+    for(const bay of [leftTarget,rightTarget]){
+      const ax=checkpoint.x*w,ay=checkpoint.y*h,bx=bay.x*w,by=bay.y*h;
+      ctx.globalAlpha=.28;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+      ctx.globalAlpha=.78;ctx.fillRect(ax+(bx-ax)*phase.travel-2,ay+(by-ay)*phase.travel-1,4,2);
+    }
+    ctx.restore();
+  },
+  drawWave(ctx,jagged,ms){
+    ctx.clearRect(0,0,48,12);ctx.beginPath();
+    ctx.strokeStyle=jagged?'#efbc76':'#79d6bf';
+    for(let x=0;x<48;x++){
+      const t=x*.22+ms*.003;
+      const y=6+(jagged?2*Math.sin(3*t)+2*Math.sin(5.7*t):3*Math.sin(t));
+      if(x)ctx.lineTo(x,y);else ctx.moveTo(x,y);
+    }
+    ctx.stroke();
+  },
+  handlerStyle(theme={}){
     const setting=[theme.title,theme.setting,theme.environment?.setting_name,theme.environment?.layout].join(' ');
     if(/reef|underwater|ocean|subsea|marine|coral|abyss|aquatic/i.test(setting))return 'diver';
     if(/forest|garden|park|grove|wilderness|ranger/i.test(setting))return 'ranger';
@@ -9,7 +48,7 @@ const ArcadeHUD = {
   },
   drawHandler(ctx,x,y,state,style,accent,now){
     const stride=state.moving?Math.sin(now/(style==='diver'?160:95)):0;
-    ctx.save();ctx.translate(Math.round(x),Math.round(y-Math.abs(stride)*2));ctx.scale(state.facing*2,2);
+    ctx.save();ctx.translate(Math.round(x),Math.round(y-Math.abs(stride)*2+Math.sin(now*.003)*1.1));ctx.scale(state.facing*2,2);
     const pixel=(color,x,y,w,h)=>{ctx.fillStyle=color;ctx.fillRect(x,y,w,h);};
     const ink='#172432',light='#d9ebe5';
     for(const side of [-1,1]){
@@ -31,6 +70,7 @@ const ArcadeHUD = {
   drawVent(ctx,v,w,h,accent,now){
     const x=Math.round(v.x*w),y=Math.round(v.y*h);
     ctx.save();ctx.fillStyle='#243438';ctx.fillRect(x-14,y-4,28,9);
+    ctx.globalAlpha=v.active ? .65+.35*ArcadeHUD.ambientPhase(now).glow : 1;
     ctx.fillStyle=v.active?accent:'#627471';
     for(let i=-9;i<=9;i+=6)ctx.fillRect(x+i,y-3,2,6);
     const point=(along,across)=>WorldEngine.flowPoint(v,along,across);

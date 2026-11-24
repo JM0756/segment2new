@@ -197,3 +197,21 @@ test('generation failures display the backend reason as text',async()=>{
   get('theme').value='Haunted forest';await get('composer').onsubmit({preventDefault(){}});
   assert.equal(get('thread').children[1].textContent,reason);
 });
+
+test('classifier hub accepts a one-star unlock and isolates generated game progress',async()=>{
+  const {get,listeners,context,item}=await mountStudio();
+  const first={...item,levels:{1:'/generated/A_L1.json',2:'/generated/A_L2.json'}};
+  const second={...item,levels:{1:'/generated/B_L1.json',2:'/generated/B_L2.json'}};
+  Object.assign(context,{first,second});
+  const vm=require('node:vm');
+  vm.runInContext("ArcadeTutorial.finish('/generated/A.json');ArcadeTutorial.finish('/generated/B.json');play(first,null,1)",context);
+  const stage=get('stage');
+  const send=data=>listeners.message({origin:'http://localhost:8000',source:stage.contentWindow,data:{
+    archetype:item.game,level:Number(stage.src.searchParams.get('level')),run:stage.src.searchParams.get('run'),...data}});
+  send({type:'ARCADE_PROGRESS',passed:true,accuracy:75,stars:1,score:120});
+  send({type:'ARCADE_SELECT',targetLevel:2});
+  assert.equal(stage.src.searchParams.get('config'),first.levels[2]);
+  vm.runInContext('play(second,null,2)',context);
+  send({type:'ARCADE_SELECT',targetLevel:2});
+  assert.equal(stage.src.searchParams.get('config'),second.levels[1]);
+});

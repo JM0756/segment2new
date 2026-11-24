@@ -26,7 +26,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       const elements=new Map();
       const imageURLs=[], drawings=[];
       const drawing = {
-        createLinearGradient(){return {addColorStop(){}};},roundRect(){},setTransform(){},save(){},restore(){},strokeRect(){},strokeText(){},rotate(){},scale(){},stroke(){},moveTo(){},lineTo(){},translate(){},ellipse(){},fillText(label){drawings.push(label);},
+        clearRect(){},createLinearGradient(){return {addColorStop(){}};},roundRect(){},setTransform(){},save(){},restore(){},strokeRect(){},strokeText(){},rotate(){},scale(){},stroke(){},moveTo(){},lineTo(){},translate(){},ellipse(){},fillText(label){drawings.push(label);},
         measureText(text){return {width:text.length*5};},
         beginPath(){}, arc(){drawings.push('circle');}, fill(){},
         fillRect(){drawings.push(this.fillStyle);},
@@ -240,7 +240,8 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
         if(followShortcut){
           assert.ok(read('view.auditAvailable'));
           if(configPath!=='default.json'){
-            elements.get('auditChoices').children.find(b=>b.textContent.startsWith('Prune True Feature')).onclick();
+            elements.get('auditChoices').children.find(row=>row.children[0].textContent.startsWith('[CAUSAL]')).children[2].onclick();
+            elements.get('auditActions').children[0].onclick();
             assert.equal(read('passed'),false);
             await actions.children.find(b=>b.textContent==='Replay').onclick();
             assert.equal(read('guideStep'),-1);
@@ -249,8 +250,25 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
             elements.get('skip').onclick();assert.equal(read('view.phase'),'Training');
             return;
           }
-          elements.get('auditChoices').children.find(b=>b.textContent.startsWith('Prune Spurious Cue')).onclick();
-          press(' ','Space');tick(240);assert.ok(drawings.includes('#60d99c'));
+          assert.equal(elements.get('breakdown').children.length,4);
+          assert.match(elements.get('breakdown').children[0].textContent,/cb1 · ♦ Curveball.*Predicted .*Actual /);
+          assert.match(elements.get('learnedRule').textContent,/score = .*Surface static.*score > 0/);
+          const prune=elements.get('auditChoices').children.find(row=>row.children[0].textContent.startsWith('[SPURIOUS]')).children[2];
+          assert.equal(prune.textContent,'PRUNE TO 0');
+          prune.onclick();
+          assert.match(elements.get('projection').textContent,/100%/);
+          elements.get('auditActions').children[0].onclick();
+          assert.match(elements.get('levelHub').children[0].textContent,/★★☆/);
+          assert.equal(read('view.phase'),'Audit Win');
+          const overlay=read('cleared');
+          assert.equal(overlay.hidden,false);
+          const [title,summary,next,card]=overlay.children;
+          assert.equal(title.textContent,'STAGE 1 CLEARED!');
+          assert.match(summary.textContent,/4\/4 Field Test Passed/);
+          assert.equal(next.textContent,'NEXT LEVEL');
+          assert.equal(card.children[0].textContent,'★★☆');
+          assert.match(card.children[2].textContent,/Total Score .*curveball bonus/);
+          assert.equal(card.children[3].textContent,'Replay Stage for 3 Stars');
         }
         assert.equal(read('view.stars'),followShortcut?2:3);
         assert.ok(actions.children.some(b=>b.textContent==='Next Level →'));
