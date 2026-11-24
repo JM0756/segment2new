@@ -1,1 +1,7 @@
 @import url("../../style.css");
+
+#weights>div{display:grid;grid-template-columns:minmax(4em,1fr) 5em 3em;align-items:center;gap:.4em}
+#weights i{background:#41545b;height:5px}
+#weights em{display:block;height:100%;background:#60d6ce;transition:width .32s ease,background .32s ease}
+#verification{display:block;font-size:.88em;color:#c6e1d0}
+#pips .verified{background:#60d99c}#pips .missed{background:#ff726c}

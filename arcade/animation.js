@@ -33,9 +33,34 @@ const ArcadeHUD = {
     ctx.save();ctx.fillStyle='#243438';ctx.fillRect(x-14,y-4,28,9);
     ctx.fillStyle=v.active?accent:'#627471';
     for(let i=-9;i<=9;i+=6)ctx.fillRect(x+i,y-3,2,6);
-    if(v.active)for(let i=0;i<4;i++){
-      const t=(now/850+i/4)%1;
-      ctx.globalAlpha=.6*(1-t);ctx.fillRect(x-9+i*5+t*v.dx*18,y+t*v.dy*18,2,3);
+    const point=(along,across)=>WorldEngine.flowPoint(v,along,across);
+    ctx.strokeStyle=accent;
+    for(let i=0;i<6;i++){
+      const phase=v.active?(now/1200+i/6)%1:i/6;
+      const tail=phase*(v.length-.22),tip=point(tail+.22,0);
+      ctx.globalAlpha=v.active?.42:.08;
+      ctx.beginPath();
+      for(const edge of [-1,1]){
+        const wing=point(tail,edge*v.width/2);
+        ctx.moveTo(wing.x*w,wing.y*h);ctx.lineTo(tip.x*w,tip.y*h);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  },
+  drawPrediction(ctx,x,y,flight,bx,by,impact){
+    ctx.save();ctx.textAlign='center';ctx.font='bold 12px monospace';
+    const tag=flight.name+' ('+flight.confidence+'%)';
+    ctx.lineWidth=3;ctx.strokeStyle='#15232c';ctx.fillStyle='#fff';
+    ctx.strokeText(tag,x,y);ctx.fillText(tag,x,y);
+    if(impact){
+      ctx.fillStyle=flight.correct?'#60d99c':'#ff726c';ctx.globalAlpha=impact;
+      ctx.fillRect(bx-32,by+4,64,4);
+      for(let i=0;i<10;i++){
+        const a=i*Math.PI/5,r=10+(1-impact)*34;
+        ctx.fillRect(bx+Math.cos(a)*r,by+Math.sin(a)*r*.5,3,3);
+      }
+      ctx.fillText(flight.correct?'✓':'✗ '+flight.cue,bx,by-24);
     }
     ctx.restore();
   },

@@ -41,19 +41,31 @@ const shuffleDeck=typeof module==='undefined'?shuffled:require('../../shuffle.js
     const extra = combinations.map((item, i) => ({id: 'extra-' + i, item, label: label(cfg, item), extra: true}));
     return {initial:shuffleDeck(initial,random), extra, actualBias: aligned / size};
   }
+  function fitFeature(feature, rows) {
+    const mapping = Object.create(null), confidence = Object.create(null);
+    let matches = 0;
+    for (const value of feature.values) {
+      const group = rows.filter(row => row.item[feature.name] === value);
+      const a = group.filter(row => row.label === 'a').length;
+      const majority = Math.max(a, group.length - a);
+      mapping[value] = a >= group.length - a ? 'a' : 'b';
+      confidence[value] = Math.round(100 * (1 + majority) / (2 + group.length));
+      matches += majority;
+    }
+    return {feature: feature.name, mapping, confidence, accuracy: rows.length ? matches / rows.length : 0};
+  }
+  function featureWeights(features, rows) {
+    return features.map(feature => Math.round(100 * fitFeature(feature, rows).accuracy));
+  }
+  function cueKey(label) {
+    return label.toLowerCase().trim().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+  }
   function train(cfg, rows, features=cfg.features) {
     if (rows.length < 2 || new Set(rows.map(r => r.label)).size !== 2) throw Error('Choose examples from both classes before training.');
-    const candidates = features.map((f, order) => {
-      const mapping = {};
-      for (const v of f.values) {
-        const matching = rows.filter(r => r.item[f.name] === v);
-        const a = matching.filter(r => r.label === 'a').length;
-        mapping[v] = a >= matching.length - a ? 'a' : 'b';
-      }
-      const correct = rows.filter(r => mapping[r.item[f.name]] === r.label).length;
-      return {feature: f.name, mapping, accuracy: correct / rows.length,
-        priority: f.role === 'spurious' ? -2 : f.role === 'true' ? -1 : order};
-    });
+    const candidates = features.map((f, order) => ({
+      ...fitFeature(f, rows),
+      priority: f.role === 'spurious' ? -2 : f.role === 'true' ? -1 : order
+    }));
     // Deliberate shortcut preference on ties makes perfect correlations ambiguous.
     candidates.sort((a,b) => b.accuracy - a.accuracy || a.priority - b.priority);
     return candidates[0];
@@ -69,7 +81,7 @@ const shuffleDeck=typeof module==='undefined'?shuffled:require('../../shuffle.js
     const values = {true_feature: role(cfg,'true').name, spurious_feature: role(cfg,'spurious').name, learned_feature: model.feature};
     return cfg.hints[passed ? 'on_success' : 'on_failure'].replace(/\{(\w+)\}/g, (m,k) => values[k] ?? m);
   }
-  const api = {themeFor, label, makePool, train, evaluateCase, evaluate, hint};
+  const api = {themeFor, label, makePool, featureWeights, cueKey, train, evaluateCase, evaluate, hint};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.GameLogic = api;
 })(globalThis);

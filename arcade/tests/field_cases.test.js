@@ -81,3 +81,19 @@ test('each decision game locks its controls and scores four domain-specific case
     assert.equal(r.view().auditAvailable,false);
   }
 });
+
+test('live split weights respond to causal and shortcut labels before the field test',()=>{
+  for(const [role,key] of [['true','badge'],['spurious','aura']]){
+    const round=createRound(config),values=()=>round.view().weights;
+    assert.ok(values().every(w=>w.value===0));
+    for(let i=0;i<6;i++)round.act(round.view().actors[1][key]);
+    assert.equal(values().find(w=>w.role===role).value,100);
+    assert.equal(values().find(w=>w.role===(role==='true'?'spurious':'true')).value,67);
+    const before=round.view().prediction;
+    assert.ok(before.confidence>50 && before.confidence<100);
+    round.submit();
+    const verified=round.view().verification[0];
+    assert.equal(verified.side,before.side);
+    assert.equal(verified.correct,round.view().verdict.correct);
+  }
+});

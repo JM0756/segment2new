@@ -106,3 +106,22 @@ test('the classifier has open onboarding and collision-safe hazards in later tie
     }
   }
 });
+
+test('classifier vent acceleration follows the full directed corridor and vanishes when off',()=>{
+  for(const tier of [2,3]){
+    const map=engine.project(config.tilemap,config.world_physics,false,tier);
+    for(const vent of map.hazards){
+      const inside=engine.flowPoint(vent,2,.3);
+      const pilot=engine.controller(map,inside);
+      const first=pilot.step(0,0,.016),next=pilot.step(0,0,.016);
+      assert.ok(next.vy*vent.dy>first.vy*vent.dy && first.vy*vent.dy>0);
+      for(const [along,across] of [[-.1,0],[vent.length+.1,0],[2,vent.width/2+.1]]){
+        const outside=engine.flowPoint(vent,along,across);
+        assert.equal(engine.controller(map,outside).step(0,0,.05).vy,0);
+      }
+      vent.active=false;
+      assert.equal(engine.controller(map,inside).step(0,0,.05).vy,0);
+      assert.ok(Math.abs(pilot.step(0,0,.05).vy)<Math.abs(next.vy));
+    }
+  }
+});

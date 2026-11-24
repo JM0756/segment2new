@@ -55,7 +55,7 @@ const WorldEngine = (() => {
       }
     }));
     const vents=[{x:7.5/width,y:6.5/height,dx:0,dy:1},{x:13.5/width,y:6.5/height,dx:0,dy:-1}];
-    const hazards=vents.slice(0,Math.max(0,tier-1)).map(v=>({...v,active:true}));
+    const hazards=vents.slice(0,Math.max(0,tier-1)).map(v=>({...v,active:true,length:3.2,width:1.55,pushForce:24}));
     return {...physical,hazards,surface:{...physical.surface,speedMultiplier:1,drag:.9},grid:rows,structures,obstacles};
   }
   function path(rows,from,to){
@@ -79,6 +79,15 @@ const WorldEngine = (() => {
     const steps=[];
     for(let i=destination;i!==-1;i=prior.get(i))steps.push(center(i));
     return start===end?[from,to]:[from,...steps.reverse(),to];
+  }
+  // Project tile-space displacement onto the vent's unit flow and cross-flow axes.
+  function inFlow(v,p){
+    const x=(p.x-v.x)*width,y=(p.y-v.y)*height;
+    const along=x*v.dx+y*v.dy,across=-x*v.dy+y*v.dx;
+    return along>=0 && along<=v.length && Math.abs(across)<=v.width/2;
+  }
+  function flowPoint(v,along,across){
+    return {x:v.x+(along*v.dx-across*v.dy)/width,y:v.y+(along*v.dy+across*v.dx)/height};
   }
   function surfaceAt(world,p){
     const tile=world.grid?.[Math.floor(p.y*height)]?.[Math.floor(p.x*width)];
@@ -144,15 +153,16 @@ const WorldEngine = (() => {
             const drag=surface.drag**(60*tick),length=Math.hypot(ax,ay)||1;
             vx=drag*vx+(1-drag)*ax/length*speed;vy=drag*vy+(1-drag)*ay/length*speed;
           }
-          const vent=world.hazards?.find(v=>v.active && Math.hypot(v.x*width-x,v.y*height-y)<1);
-          const stepX=(vx+(vent?.dx||0)*1.4)*tick,stepY=(vy+(vent?.dy||0)*1.4)*tick;
+          const vent=world.hazards?.find(v=>v.active && inFlow(v,pos()));
+          if(vent){vx+=vent.dx*vent.pushForce*tick;vy+=vent.dy*vent.pushForce*tick;}
+          const stepX=vx*tick,stepY=vy*tick;
           if(fits(world.grid,x+stepX,y))x+=stepX;else vx=0;
           if(fits(world.grid,x,y+stepY))y+=stepY;else vy=0;
           if(tethered)follow();
           if(Math.abs(vx)>.05)facing=Math.sign(vx);
           moving ||= Math.hypot(vx,vy)>.08;
         }
-        return {...pos(),contact,moving,facing};
+        return {...pos(),vx,vy,contact,moving,facing};
       }
     };
   }
@@ -164,6 +174,6 @@ const WorldEngine = (() => {
     }
     return nearest;
   }
-  return {legacyMap,project,path,surfaceAt,controller,nearby};
+  return {legacyMap,project,path,surfaceAt,controller,nearby,inFlow,flowPoint};
 })();
 if(typeof module!=='undefined')module.exports=WorldEngine;

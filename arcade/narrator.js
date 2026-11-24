@@ -50,7 +50,7 @@ const ArcadeNarrator = {
       'Part 1 · 3/6 · Classify. Escort the tethered specimen to a bay and press E or Space to deliver it. Clicking a leader walks you there. Practice now. After training, Space starts the Field Test.',
       'Part 2 · 4/6 · Signals and shortcuts. '+(classifier?inspect:why.join(' '))+' A classifier learns from your decisions. An outfit or a patch of static can predict a class in training by coincidence.',
       'Part 2 · 5/6 · Counter-examples. Look for a familiar identity with an unusual surface cue. Correctly labeling these exceptions helps the model generalize as Levels 2 and 3 change the environment.',
-      'Part 2 · 6/6 · Test the model. '+(classifier?'The Spurious Reliance bar rises when you mislabel counter-examples. ':sorter?'Compare field accuracy with your training decisions. ':'Compare your decisions with the field results. In Feature-Classifier, watch the Spurious Reliance bar. ')+'If a shortcut causes a failed Field Test, Model Audit lets you prune the misleading cue and retry for two stars. Removing the true signal loses the audit.'
+      'Part 2 · 6/6 · Test the model. '+(classifier?'Watch the live feature weights as you label counter-examples. Press Space once to launch all four field cases. ':sorter?'Compare field accuracy with your training decisions. ':'Compare your decisions with the field results. In Feature-Classifier, watch the Spurious Reliance bar. ')+'If a shortcut causes a failed Field Test, Model Audit lets you prune the misleading cue and retry for two stars. Removing the true signal loses the audit.'
     ];
   },
   next(step,input){

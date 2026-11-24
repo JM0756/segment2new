@@ -87,6 +87,7 @@ function interactHere(space=false){
     else choose(bay.index);
   }else if(space && guideStep<0 && view.readyToSubmit)submit();
 }
+let flight=null;
 let handoff=null,objective='';
 let scanTime=-Infinity;
 const targetPulse=[-Infinity,-Infinity];
@@ -142,7 +143,48 @@ function choose(i){
 function submit(){
   if(guideStep===5)finishGuide();
   else if(guideStep>=0)guideInput('continue');
+  else if(escortMode && view.field && !view.done){
+    if(!flight){launchCase();render();}
+  }
   else if(guideStep<0&&!view.done)action(()=>round.submit());
+}
+function launchCase(){
+  flight={...view.prediction,number:view.completed+1,traits:view.traits,actor:view.actors.find(a=>!a.station),age:0,arrived:false};
+}
+function advanceFlight(dt){
+  if(!flight||guideStep>=0)return;
+  flight.age+=Math.max(0,Math.min(100,dt));
+  if(!flight.arrived && flight.age>=1000){
+    flight.arrived=true;
+    action(()=>round.submit());
+    flight.correct=view.verification.at(-1).correct;
+  }
+  if(flight.age>=1650){
+    if(view.done){flight=null;render();}
+    else {launchCase();render();}
+  }
+}
+function renderWeights(){
+  const panel=$('weights');
+  for(const [i,w] of view.weights.entries()){
+    let row=panel.children[i];
+    if(!row){
+      row=document.createElement('div');
+      const track=document.createElement('i');track.append(document.createElement('em'));
+      row.append(document.createElement('span'),track,document.createElement('b'));panel.append(row);
+    }
+    const [label,track,percent]=row.children,fill=track.children[0];
+    const lookup=view.weightsByCue;
+    const agreement=lookup?.[w.key] ?? lookup?.[GameLogic.cueKey(w.key)] ??
+      lookup?.[w.name] ?? lookup?.[w.name.toLowerCase()] ?? lookup?.[GameLogic.cueKey(w.name)] ?? w.value;
+    const value=Number.isFinite(agreement)?Math.max(0,Math.min(100,Math.round(agreement))):0;
+    label.textContent=w.name;percent.textContent=value+'%';fill.style.width=value+'%';
+    fill.style.background=w.role==='spurious'?'hsl('+Math.round(42*(1-value/100))+' 92% 61%)':
+      w.role==='noise'?'#a6b6c4':'';
+  }
+  const last=view.verification.at(-1);
+  $('verification').textContent=last?'FIELD TEST · '+view.completed+'/4 · '+last.specimen+' → '+last.name+
+    (last.correct?' ✓ Verified':' ✗ Misclassified · '+last.role+' cue: '+last.cue):'';
 }
 function advance(){
   if(!passed || tier>=lastLevel)return;
@@ -168,7 +210,7 @@ function consoleReadout(guided){
   if(guided){
     total=6;completed=guideStep;kind='Guide';instruction='';
   }else if(view.field){
-    total=4;completed=view.completed;kind='Field case';instruction=view.done?'Review the field results.':view.submit;
+    total=4;completed=view.completed;kind='Field case';instruction=view.done?'Review the field results.':escortMode?(flight?'Watch the model sort each specimen.':'Launch the trained model with Space.'):view.submit;
   }else if(training){
     total=training;completed=view.target%total;kind=m.samples?'Signal':'Specimen';instruction='Inspect the item and choose its destination.';
   }else if(view.range){
@@ -182,13 +224,13 @@ function consoleReadout(guided){
   objective=instruction;
   $('objective').textContent=objective;
   const number=Math.min(completed+1,total);
-  $('itemId').textContent=kind+' '+(view.field&&view.verdict?view.completed:number);
+  $('itemId').textContent=kind+' '+(!guided&&flight?flight.number:view.field&&view.verdict?view.completed:number);
   $('progress').textContent=completed+' / '+total;
   $('pips').replaceChildren();
   for(let i=0;i<total;i++){
-    const pip=document.createElement('i');if(i<completed)pip.className='filled';$('pips').append(pip);
+    const pip=document.createElement('i');if(i<completed)pip.className=!guided&&view.verification?.[i]?(view.verification[i].correct?'verified':'missed'):'filled';$('pips').append(pip);
   }
-  let traits=view.traits||[];
+  let traits=(!guided && flight?.traits)||view.traits||[];
   if(guided && m.class_rule){
     traits=m.features.map(f=>[t.featureLabels[f.name],f.values.map(v=>t.featureLabels[v]).join(' / ')]);
   }else if(!traits.length){
@@ -216,8 +258,8 @@ function render() {
   consoleReadout(guided);
   const scoreLabels=view.teamNames||(config.archetype==='threshold'?['Hits','False alarms']:['Verified','Errors']);
   for(let i=0;i<2;i++)$('team'+i).textContent=scoreLabels[i]+' '+view.score[i];
-  $('metric').textContent=view.metric+' '+view.value+'%';
-  $('meter').style.setProperty('--value',view.value+'%');
+  if(escortMode)renderWeights();
+  else { $('metric').textContent=view.metric+' '+view.value+'%';$('meter').style.setProperty('--value',view.value+'%'); }
   $('guide').hidden=!guided;
   $('instruction').textContent=guided?lines[guideStep]:'';
   $('continue').disabled=guideStep<3;
@@ -232,15 +274,15 @@ function render() {
   const dialog=$('modelAudit');
   if(dialog.open && (guided||!view.auditAvailable))dialog.close();
   if(!guided){
-    if(!view.instant&&!view.training){const trigger=button('[SPACE] '+(view.field&&view.completed===0?'Launch Field Test':view.submit),submit);trigger.disabled=Boolean(view.done||view.training);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
+    if(!view.instant&&!view.training){const trigger=button('[SPACE] '+(view.field&&view.completed===0?'Launch Field Test':view.submit),submit);trigger.disabled=Boolean(view.done||view.training||escortMode&&flight);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
     if(passed&&tier<lastLevel)$('actions').append(button('Next Level →',advance));
     if(view.auditAvailable){
       $('auditChoices').replaceChildren();
       ['true','spurious'].forEach((role,i)=>{
         const label=(i?'Prune Spurious Cue · ':'Prune True Feature · ')+view.auditChoices[i];
-        $('auditChoices').append(button(label,()=>{reported=false;action(()=>round.audit(role));}));
+        $('auditChoices').append(button(label,()=>{reported=false;flight=null;action(()=>round.audit(role));}));
       });
-      if(!dialog.open)dialog.showModal();
+      if(!dialog.open && !(escortMode && flight))dialog.showModal();
     }
     if(view.done)$('actions').append(button('Replay',()=>start(config,configPath)));
   }
@@ -347,9 +389,16 @@ function rimLight(){
 }
 function paint(now){
   requestAnimationFrame(paint);if(!round)return;
+  advanceFlight(now-frameTime);
   resizeCanvas();
   const w=worldWidth,h=floorHeight();
   ctx.save();
+  const flying=guideStep<0 && flight;
+  const impact=flying?.arrived?Math.max(0,1-(flying.age-1000)/500):0;
+  if(impact){
+    const amplitude=impact*(flying.correct?2:6);
+    ctx.translate(Math.sin(now*.09)*amplitude,Math.cos(now*.12)*amplitude*.6);
+  }
   if(feedback&&now-feedback.start>=700)feedback=null;
   const zoom=Math.max(w/scenery.width,worldHeight/scenery.height);
   const sw=scenery.width*zoom,sh=scenery.height*zoom;
@@ -399,7 +448,9 @@ function paint(now){
     }
     let path=paths.approach,elapsed=station||guideStep>=0?path.duration:age;
     const specimen=i===controlled;
-    const point=specimen && escortMode?pilot.specimen():specimen && driven?driven:ArcadeWorld.position(path,elapsed);
+    const bay=flying && ArcadeWorld.zone(world,flying.side);
+    const t=flying?Math.min(1,flying.age/1000):0,travel=t*t*(3-2*t);
+    const point=specimen && flying?{x:checkpoint.x+(bay.x-checkpoint.x)*travel,y:checkpoint.y+(bay.y-checkpoint.y)*travel}:specimen && escortMode?pilot.specimen():specimen && driven?driven:ArcadeWorld.position(path,elapsed);
     if(!station && guideStep<0 && !view.field && (!specimen && age<path.duration)){
       const distance=Math.hypot((point.x-door.x)*20,(point.y-door.y)*12);
       doorwayMotion=Math.max(doorwayMotion,Math.min(1,Math.max(0,2-distance)));
@@ -407,7 +458,7 @@ function paint(now){
     if(!specimen&&!station&&guideStep<0)trails.push(...ArcadeWorld.trail(path,elapsed));
     const x=effect?.x??point.x*mw,y=effect?.y??(point.y*h-11);
     hits[i]={x,y,...actor};
-    entries.push({x,footY:y+11,draw:()=>drawActor(actor,i,effect,x,y,age,specimen&&driven&&!escortMode?driven.facing:vx,specimen&&!escortMode&&driven?driven.moving:!specimen&&!station&&guideStep<0&&elapsed<path.duration)});
+    entries.push({x,footY:y+11,draw:()=>drawActor(specimen&&flying?flying.actor:actor,i,effect,x,y,age,specimen&&driven&&!escortMode?driven.facing:vx,specimen&&!escortMode&&driven?driven.moving:!specimen&&!station&&guideStep<0&&elapsed<path.duration)});
   });
   if(escortMode){
   const handler=driven||{...pilot.pos(),facing:1,moving:false};
@@ -456,6 +507,10 @@ function paint(now){
     ctx.beginPath();ctx.moveTo(pilot.pos().x*mw,pilot.pos().y*h-14);ctx.lineTo(item.x*mw,item.y*h-12);ctx.stroke();ctx.restore();
   }
   ArcadeHUD.paintByDepth(entries);
+  if(flying){
+    const hit=hits[controlled],bay=ArcadeWorld.zone(world,flying.side);
+    ArcadeHUD.drawPrediction(ctx,hit.x,hit.y-75,flying,bay.x*mw,bay.y*h,impact);
+  }
   const target=interactionTarget();
   let hint=objective;
   if(target){
@@ -528,7 +583,7 @@ async function start(data,path){
     physical=ArcadeWorld.forLegacyConfig(data,baseline.world_physics,materials);
   }
   if(id!==generation)return;
-  escortMode=data.archetype==='classifier';lastChoice=null;
+  flight=null;escortMode=data.archetype==='classifier';lastChoice=null;
   lowProfile=Boolean(background?.naturalWidth);
   world=WorldEngine.project(data.tilemap||WorldEngine.legacyMap(physical,tier),physical,lowProfile,escortMode?tier:null);pilot=escortMode?WorldEngine.controller(world):null;handoff=null;held.clear();track=[];frameTime=performance.now();hover=null;entryPaths.clear();
   scenery=document.createElement('canvas');scenery.width=background?.naturalWidth||560;scenery.height=background?.naturalHeight||245;

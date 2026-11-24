@@ -171,7 +171,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       const moveTo=(x,y)=>{read(`pilot.walkTo({x:${x},y:${y}})`);tick(140);};
       if(configPath===generatedPath){
         const vent=read('world.hazards[0]');
-        moveTo(vent.x,vent.y);assert.match(elements.get('objective').textContent,/Disable vent/);
+        moveTo(vent.x-.052,vent.y);assert.match(elements.get('objective').textContent,/Disable vent/);
         press('e');tick(1);assert.equal(vent.active,false);
         assert.match(elements.get('objective').textContent,/Enable vent/);
         press('e');assert.equal(vent.active,true);
@@ -182,6 +182,9 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       assert.equal(read('decisions.length'),0);
       assert.deepEqual([read('pilot.specimen().x'),read('pilot.specimen().y')],[center.x,center.y]);
 
+      const weightRows=elements.get('weights').children;
+      assert.ok(weightRows.length>0);
+      assert.ok(weightRows.every(row=>row.children[2].textContent==='0%'));
       for(const [side,key] of [[0,'e'],[1,'Space']]){
         moveTo(center.x,center.y);press(' ','Space');assert.ok(read('pilot.tethered'));
         press('e');assert.ok(read('pilot.traced'));
@@ -192,6 +195,17 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
         assert.notEqual(read('pilot.specimen().x'),read('pilot.pos().x'));
         press(key==='Space'?' ':key,key);
         assert.ok(read('decisions').includes(side));assert.equal(read('pilot.tethered'),false);
+        assert.equal(read('view.training'),true);
+        const state=read('view');
+        state.weights.forEach(({key,name,value},i)=>{
+          assert.ok(value>0);
+          if(side===0)assert.equal(value,100);
+          assert.equal(state.weightsByCue[key],value);
+          assert.equal(state.weightsByCue[name],value);
+          assert.equal(state.weightsByCue[name.toLowerCase()],value);
+          assert.equal(weightRows[i].children[2].textContent,value+'%');
+          assert.equal(weightRows[i].children[1].children[0].style.width,value+'%');
+        });
       }
       const target=read('signs()')[0],before=read('decisions.length');
       moveTo(center.x,center.y);press('e');click(target.x,target.y);
@@ -209,7 +223,20 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
           click(center.x,center.y);tick(100);clickLeader(side);
         }
         assert.ok(read('view.field'));
-        for(let i=0;i<4;i++)press(' ','Space');
+        press(' ','Space');tick(16);
+        const side=read('flight.side'),hit=read('hits.find(h=>!h.station).x/mapWidth()');
+        assert.ok(side?hit>center.x:hit<center.x);
+        assert.ok(drawings.includes(read("flight.name+' ('+flight.confidence+'%)'")));
+        assert.equal(read('view.completed'),0);
+        tick(20);assert.equal(read('view.completed'),1);
+        assert.equal(read('flight.arrived'),true);
+        assert.ok(drawings.includes(read("flight.correct?'#60d99c':'#ff726c'")));
+        tick(210);
+        assert.equal(elements.get('pips').children.length,4);
+        assert.deepEqual(elements.get('pips').children.map(p=>p.className),
+          Array.from(read('view.verification'),r=>r.correct?'verified':'missed'));
+        assert.ok(drawings.includes('#ff726c'));
+        assert.match(elements.get('verification').textContent,/FIELD TEST · 4\/4/);
         if(followShortcut){
           assert.ok(read('view.auditAvailable'));
           if(configPath!=='default.json'){
@@ -223,7 +250,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
             return;
           }
           elements.get('auditChoices').children.find(b=>b.textContent.startsWith('Prune Spurious Cue')).onclick();
-          for(let i=0;i<4;i++)press(' ','Space');
+          press(' ','Space');tick(240);assert.ok(drawings.includes('#60d99c'));
         }
         assert.equal(read('view.stars'),followShortcut?2:3);
         assert.ok(actions.children.some(b=>b.textContent==='Next Level →'));

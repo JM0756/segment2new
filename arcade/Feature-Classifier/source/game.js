@@ -16,7 +16,14 @@ function createRound(config) {
     const errors=counter.filter(row=>row.label!==GameLogic.label(m,row.item)).length;
     return errors?Math.max(60,Math.round(100*errors/counter.length)):0;
   }
+  let weights=GameLogic.featureWeights(m.features,rows),verification=[];
+  function prediction(item){
+    const value=item[model.feature],side=Number(model.mapping[value]==='b');
+    return {side,name:t.options[side],confidence:model.confidence[value],cue:labels[value],
+      role:m.features.find(f=>f.name===model.feature).role,specimen:labels[item[core]]};
+  }
   function beginTest(){
+    verification=[];
     test=makeFieldTest(cases,item=>{
       const feature=m.features.find(f=>f.name===model.feature);
       const {passed:correct}=GameLogic.evaluateCase(m,model,item);
@@ -28,9 +35,19 @@ function createRound(config) {
   return {
     view() {
       const state=test?.view(), ready=state?.completed===0, spuriousReliance=reliance();
-      const item=state?.verdict?.item || state?.current || pool.initial[index].item;
+      const item=state?.current || pool.initial[index].item;
       const failedAudit=pruned==='true';
-      return {...state, auditAvailable:state?.done&&!state.success&&spuriousReliance>=50&&!pruned,
+      const weightRows=m.features.map((f,i)=>({key:f.name,name:labels[f.name],role:f.role,value:weights[i]}));
+      const weightsByCue=Object.create(null);
+      for(const {key,name,value} of weightRows){
+        for(const alias of [name,name.toLowerCase(),GameLogic.cueKey(name),GameLogic.cueKey(key)]){
+          weightsByCue[alias] ??= value;
+        }
+      }
+      // Internal IDs win if a custom display label happens to match another cue's ID.
+      for(const {key,value} of weightRows)weightsByCue[key]=value;
+      return {...state,weights:weightRows,weightsByCue,
+        prediction:state?prediction(item):null,verification:[...verification], auditAvailable:state?.done&&!state.success&&spuriousReliance>=50&&!pruned,
         auditChoices:[labels[core],labels[shortcut.name]], stars:state?.success?(pruned?2:3):0,
         phase:failedAudit?'Audit failed':ready?'Model ready':state?.phase||'Training',
         detail:failedAudit?'Model Audit · 0% accuracy':state?.detail,
@@ -49,6 +66,7 @@ function createRound(config) {
       const row=pool.initial[index++],label=n?'b':'a',correct=label===row.label;
       counts[n]++;if(correct)correctLabels++;
       rows.push({...row,label});
+      weights=GameLogic.featureWeights(m.features,rows);
       note=correct?'Causal match.':'Check the core signal.';
       if(index===pool.initial.length){
         index=0;
@@ -57,7 +75,12 @@ function createRound(config) {
       }
       return {actor:1,destination:n,correct,text:correct?'+1':'Mislabelled!'};
     },
-    submit(){test?.step();},
+    submit(){
+      if(!test||test.view().done)return;
+      const result=prediction(test.view().current);
+      test.step();
+      verification.push({...result,correct:test.view().verdict.correct});
+    },
     audit(role){
       if(!this.view().auditAvailable||!['true','spurious'].includes(role))return;
       pruned=role;
@@ -67,6 +90,7 @@ function createRound(config) {
       }
       // The audit verifies training labels against the retained causal cue.
       const verified=rows.map(row=>({...row,label:GameLogic.label(m,row.item)}));
+      weights=m.features.map(f=>f.role==='true'?100:0);
       model=GameLogic.train(m,verified,m.features.filter(f=>f.role==='true'));
       beginTest();note='Shortcut pruned. Evaluate the model again (up to two stars).';
     }
