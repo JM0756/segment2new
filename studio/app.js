@@ -112,7 +112,7 @@ function resultCard(item,file,where,summary){
   mount();
 }
 const sessionUnlocks=new Map();
-let passedRun=false;
+let passedRun=false,activeGameId;
 function closeChat(){
   $('stageChat').hidden=true;$('remixToggle').setAttribute('aria-expanded','false');
 }
@@ -127,13 +127,16 @@ function play(item,file,requested){
   const first=item.levels[1]||file;
   const paths=[item.preview_path||first,first,item.levels[2],item.levels[3]];
   const lastLevel=paths[2]?(paths[3]?3:2):1;
-  level=Progression.enter(Math.min(unlocked,lastLevel),requested??0);
+  activeGameId=ArcadeTutorial.gameId(first,location.origin);
+  const tutorialComplete=ArcadeTutorial.has(activeGameId);
+  if(tutorialComplete)unlocked=Math.max(1,unlocked);
+  level=tutorialComplete?Progression.enter(Math.min(unlocked,lastLevel),requested||1):0;
   path=paths[level];runId=crypto.randomUUID();
   $('play').hidden=false;$('remixToggle').hidden=!Progression.canRemix(level,unlocked);
   if(Object.values(item.levels).includes(path))targetPath=path;
   const url=new URL('/arcade/'+item.game+'/source/index.html',location.origin);
-  url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,lastLevel,game:item.game,run:runId});
-  if(requested>0)url.searchParams.set('transition','1');
+  url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,lastLevel,game:item.game,gameId:activeGameId,run:runId});
+  if(level>0 && tutorialComplete)url.searchParams.set('transition','1');
   $('resumeLevel').hidden=level===0||Math.min(unlocked,lastLevel)<=level;
   $('resumeLevel').textContent='Resume Level '+Math.min(unlocked,lastLevel);
   $('stage').src=url;$('stage').title=item.title+' · '+(level?'Level '+level:'Tutorial');
@@ -149,6 +152,7 @@ window.addEventListener('message',e=>{
   if(m.type!=='ARCADE_PROGRESS')return;
   passedRun=m.passed&&(level===0||m.accuracy>=75&&m.stars>=2);
   unlocked=Progression.complete(unlocked,level,m);
+  if(level===0 && passedRun)ArcadeTutorial.finish(activeGameId);
   sessionUnlocks.set(active.game,unlocked);
 });
 $('resumeLevel').onclick=()=>play(active,null,unlocked);

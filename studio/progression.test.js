@@ -42,7 +42,7 @@ async function mountStudio(){
     localStorage:{getItem:k=>records.get(k),setItem:(k,v)=>records.set(k,v)},
     fetch:async()=>({ok:true,json:async()=>({items:[item],health:{model:'auto'}})}),
     setTimeout(fn,ms){intervals.set(ms,fn);return ms;},clearTimeout(ms){intervals.delete(ms);},Option:class{},URL,URLSearchParams,crypto:require('node:crypto'),setInterval(fn,ms){intervals.set(ms,fn);return ms;},clearInterval(ms){intervals.delete(ms);}});
-  for(const file of ['../arcade/environment.js','progression.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),context);
+  for(const file of ['../arcade/tutorial.js','../arcade/environment.js','progression.js','app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),context);
   await new Promise(resolve=>setImmediate(resolve));
   return {get,context,intervals,listeners,game,levels,records,item};
 }
@@ -79,7 +79,8 @@ test('Studio mounts the default tutorial first and gates the floating remix cont
   assert.equal(get('saveProgress').dataset.saved,'true');intervals.get(1500)();
   assert.equal(get('saveProgress').title,'Save progress');assert.equal(get('saveProgress').dataset.saved,undefined);
   assert.equal(Number(records.get('arcade-progress-v1/'+game)),3);
-  get('catalog').children[0].onclick();assert.equal(stage.src.searchParams.get('mode'),'tutorial');
+  get('catalog').children[0].onclick();assert.equal(stage.src.searchParams.get('level'),'1');
+  assert.equal(records.get('arcade_tutorial_completed:'+game),'1');
 });
 
 test('plain Enter sends and modified or composing Enter leaves the text alone',async()=>{

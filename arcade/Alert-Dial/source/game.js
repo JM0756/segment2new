@@ -16,7 +16,7 @@ function createRound({mechanics:m,theme:t}) {
   return {
     view(){
       const {hits,fp,miss,cost}=stats(i);
-      return {phase:'Checkpoint',accuracy:100*(records.length-fp-miss)/records.length,score:[hits,fp],names:t.options,actions:['Lower cutoff','Raise cutoff'],
+      return {phase:'Checkpoint',readyToSubmit:moves>0,accuracy:100*(records.length-fp-miss)/records.length,score:[hits,fp],names:t.options,actions:['Lower cutoff','Raise cutoff'],
         subject:'Gate ≥ '+stops[i]+'   |   Scores: '+records.map(r=>r[0]).join(' · '),
         metric:'Alert Precision',value:Math.round(100*hits/(hits+fp||1)),range:[i,stops.length-1],
         detail:'Recall '+Math.round(100*hits/(hits+miss||1))+'% · Missed '+miss+' · Cost '+cost+

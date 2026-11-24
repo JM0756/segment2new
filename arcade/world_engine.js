@@ -21,8 +21,13 @@ const WorldEngine = (() => {
     rows.forEach((row,y)=>row.forEach((tile,x)=>{
       if(tile==='#'){cells.push([x,y]);rows[y][x]='.';}
     }));
-    const landmarks=[];
-    rows.forEach((row,y)=>row.forEach((tile,x)=>{if(keys[tile])landmarks.push([x,y]);}));
+    // Use identical task landmarks even for older or generated maps with custom coordinates.
+    const anchors={S:[10,2],'?':[10,6],L:[4,6],R:[15,6]};
+    rows.forEach(row=>row.forEach((tile,x)=>{if(keys[tile])row[x]='.';}));
+    const landmarks=Object.values(anchors);
+    for(const [tile,[x,y]] of Object.entries(anchors))rows[y][x]=tile;
+    structures.checkpoint={...structures.checkpoint,radius:.075};
+    for(const side of ['leftTarget','rightTarget'])structures[side]={...structures[side],width:.12,height:.16};
     // The right control dock narrows the playable plane. Keep generated-scene props at its outer left edge.
     const safe=(x,y)=>(background?x===0:(x<4||x>=16)) && landmarks.every(([lx,ly])=>Math.abs(lx-x)>=4 || Math.abs(ly-y)>=3);
     const candidates=[...cells,[2,9],[17,10]];
@@ -44,7 +49,7 @@ const WorldEngine = (() => {
         obstacles.push({...nearest,...point,w:1/width,h:1/height});
       }
     }));
-    return {...physical,grid:rows,structures,obstacles};
+    return {...physical,surface:{...physical.surface,speedMultiplier:1,drag:.9},grid:rows,structures,obstacles};
   }
   function path(rows,from,to){
     const start=index(from),end=index(to),queue=[start],prior=new Map([[start,-1]]);
@@ -72,8 +77,6 @@ const WorldEngine = (() => {
     const tile=world.grid?.[Math.floor(p.y*height)]?.[Math.floor(p.x*width)];
     const base=world.surface;
     if(tile!=='~')return base;
-    if(['snow','grass','carpet'].includes(base.type))return {...base,speedMultiplier:.72,drag:.80,trailStyle:'footprints'};
-    if(base.type==='metal')return {...base,speedMultiplier:1.3,drag:.88,trailStyle:'footprints'};
     return {...base,drag:.96,trailStyle:'footprints'};
   }
   function fits(rows,x,y){
@@ -115,7 +118,14 @@ const WorldEngine = (() => {
       }
     };
   }
-  function sideAt(x){return x<.38?0:x>.62?1:null;}
-  return {legacyMap,project,path,surfaceAt,controller,sideAt};
+  function nearby(point, landmarks){
+    let nearest=null,best=1.25;
+    for(const target of landmarks){
+      const d=Math.hypot((target.x-point.x)*width,(target.y-point.y)*height);
+      if(d<=best){best=d;nearest=target;}
+    }
+    return nearest;
+  }
+  return {legacyMap,project,path,surfaceAt,controller,nearby};
 })();
 if(typeof module!=='undefined')module.exports=WorldEngine;

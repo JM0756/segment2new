@@ -2,18 +2,14 @@
 const $=id=>document.getElementById(id), params=new URLSearchParams(location.search);
 let configPath=params.get('config')||'default.json', generation=0, config, round, images=[], view;
 const tier=Number(params.get('level')??(configPath.match(/(?:level|_L)([123])\.json$/)?.[1]||1));
-let continuing=Boolean(params.has('mode')&&params.get('transition')==='1');
-if(continuing){
-  const address=new URL(location.href);
-  address.searchParams.delete('transition');history.replaceState(null,'',address);
-}
+let gameId=params.get('gameId')||ArcadeTutorial.gameId(configPath,window.location.href);
 const lastLevel=Number(params.get('lastLevel')||3);
 const tutorialMode=params.get('mode')==='tutorial';
 let reported=false, passed=false, guideStep=-1, lines=[], practiceActors=[];
 let cohort,world,lowProfile,hover=null;
 const entryPaths=new Map(),held=new Set();
 let savedPilot=null,land,spawnUntil=-Infinity;
-const floorTop=()=>worldHeight*(lowProfile ? .48 : .42), floorHeight=()=>worldHeight*(lowProfile ? .28 : .53);
+const floorTop=()=>worldHeight*.43, floorHeight=()=>worldHeight*.37;
 let pilot=null,frameTime=0,track=[],lastMark=0;
 const movement={a:[-1,0],d:[1,0],w:[0,-1],s:[0,1],arrowleft:[-1,0],arrowright:[1,0],arrowup:[0,-1],arrowdown:[0,1]};
 function takeControl(){
@@ -29,30 +25,32 @@ function signs(){
   return choices.map((label,i)=>{
     const side=i%2,z=ArcadeWorld.zone(world,side);
     const count=Math.ceil((choices.length-side)/2);
-    return {x:z.x,y:count===1?z.y:.22+.60*Math.floor(i/2)/(count-1),label,index:i};
+    const row=Math.floor(i/2),offset=Math.ceil(row/2)*(row%2?-1:1);
+    return {x:z.x,y:z.y+offset*Math.min(.22,.8/count),label,index:i};
   });
 }
 function inspectHere(){
   scanTime=performance.now();
   if(guideStep>=0)guideInput('inspect');
-  else if(round.inspect)action(()=>round.inspect(),true);
+  else {
+    if(round.inspect)action(()=>round.inspect(),true);
+    $('detail').textContent=[view.subject,view.detail,...(view.legend||[]),...(view.sources||[])].filter(Boolean).join(' · ');
+  }
 }
 function interactHere(space=false){
   if(guideStep>=3){if(space)submit();return;}
   if(guideStep<0 && (view.done||view.field)){if(space)submit();return;}
   if(!takeControl())return;
-  const pos=pilot.pos(),side=WorldEngine.sideAt(pos.x);
-  if(space && guideStep<0 && !view.training&&!view.instant){submit();return;}
-  const landmarks=signs(),atLeader=landmarks.find(s=>Math.hypot((s.x-pos.x)*20,(s.y-pos.y)*12)<1.25);
-  if(side!==null||atLeader){
-    const options=atLeader?[atLeader]:landmarks.filter(s=>s.index%2===side);
-    if(!options.length)return;
-    const nearest=options.reduce((a,b)=>Math.abs(a.y-pos.y)<=Math.abs(b.y-pos.y)?a:b);
+  const pos=pilot.pos(),target=WorldEngine.nearby(pos,signs());
+  if(space && guideStep<0 && view.readyToSubmit && (!target||lastChoice===target.index)){submit();return;}
+  if(target){
+    targetPulse[target.index%2]=performance.now();
     if(guideStep>=0){guideInput('classify');held.clear();}
-    else choose(nearest.index);
-  }else if(!space)inspectHere();
+    else choose(target.index);
+  }else if(!space && WorldEngine.nearby(pos,[world.structures.checkpoint,...inspectablePoints()]))inspectHere();
 }
-let scanTime=-Infinity;
+let scanTime=-Infinity,lastChoice=null;
+const targetPulse=[-Infinity,-Infinity];
 let feedback=null, pulse=0, arrival=0, origin, hits=[];
 const canvas=$('arena'),ctx=canvas.getContext('2d');
 function emit(event,detail={}) {
@@ -74,7 +72,7 @@ function action(fn, inspection=false) {
   }else if(outcome && hits[outcome.actor])feedback=ArcadeHUD.spawnCallout(hits[outcome.actor],outcome,pulse);
   view=round.view();
   if(last!==view.target){
-    arrival=pulse;spawnUntil=view.field?-Infinity:pulse+500;entryPaths.clear();pilot=null;track=[];hits=[];
+    lastChoice=null;arrival=pulse;spawnUntil=view.field?-Infinity:pulse+500;entryPaths.clear();pilot=null;track=[];hits=[];
     if(feedback)feedback.detached=true; // Keep the callout at the previous sample, but show the new cues immediately.
   }
   if(!view.done){passed=false;reported=false;}
@@ -100,7 +98,7 @@ function guideInput(key){
 }
 function choose(i){
   if(guideStep>=0){guideInput(i);return;}
-  if(!view.done&&!view.locked&&!view.field)action(()=>round.act(i));
+  if(!view.done&&!view.locked&&!view.field){lastChoice=i;action(()=>round.act(i));}
 }
 function submit(){
   if(guideStep===5)finishGuide();
@@ -119,8 +117,9 @@ function advance(){
   url.searchParams.set('level',next);url.searchParams.delete('next');location.assign(url);
 }
 function finishGuide(){
-  if(tutorialMode){passed=true;report('ARCADE_PROGRESS',true,100);advance();return;}
-  guideStep=-1;pilot=savedPilot;savedPilot=null;held.clear();hits=[];track=[];entryPaths.clear();
+  ArcadeTutorial.finish(gameId);
+  if(tutorialMode){passed=true;report('ARCADE_PROGRESS',true,100);report('ARCADE_NEXT',true,100);return;}
+  guideStep=-1;scanTime=-Infinity;pilot=savedPilot;savedPilot=null;held.clear();hits=[];track=[];entryPaths.clear();
   feedback=null;arrival=performance.now();spawnUntil=pilot||view.field?-Infinity:arrival+500;render();
 }
 function render() {
@@ -150,7 +149,7 @@ function render() {
   const dialog=$('modelAudit');
   if(dialog.open && (guided||!view.auditAvailable))dialog.close();
   if(!guided){
-    if(!view.instant&&!view.training){const trigger=button('[SPACE] '+(view.field&&view.completed===0?'Launch Field Test':view.submit),()=>interactHere(true));trigger.disabled=Boolean(view.done||view.training);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
+    if(!view.instant&&!view.training){const trigger=button('[SPACE] '+(view.field&&view.completed===0?'Launch Field Test':view.submit),submit);trigger.disabled=Boolean(view.done||view.training);if(view.locked&&!view.done)trigger.className='field-trigger';$('actions').append(trigger);}
     if(passed&&tier<lastLevel)$('actions').append(button('Next Level →',advance));
     if(view.auditAvailable){
       $('auditChoices').replaceChildren();
@@ -261,6 +260,10 @@ let style,accent;
 function rimLight(){
   ctx.shadowColor=accent;ctx.shadowBlur=2;ctx.shadowOffsetX=-1;ctx.shadowOffsetY=-1;
 }
+function inspectablePoints(){
+  const controlled=hits.findIndex(h=>!h.station);
+  return hits.filter((h,i)=>!h.station && i!==controlled).map(h=>({x:h.x/mapWidth(),y:(h.y+11)/floorHeight()}));
+}
 function paint(now){
   requestAnimationFrame(paint);if(!round)return;
   resizeCanvas();
@@ -306,24 +309,14 @@ function paint(now){
     const inLane=actors.some(a=>a.station);
     const row=Math.floor(i/columns),rowSize=Math.min(columns,actors.length-row*columns);
     const z=ArcadeWorld.zone(world,slot);
-    const dest={x:station?z.x:actors.length===1||inLane?checkpoint.x:((i%columns)+.5)/rowSize*.86,
-      y:station?z.y:checkpoint.y+(row-(rows-1)/2)*Math.min(.12, .45/rows)};
+    const dest={x:station?z.x:i===controlled||inLane?checkpoint.x:((i%columns)+.5)/rowSize*.86,
+      y:station?z.y:i===controlled?checkpoint.y:checkpoint.y+(row-(rows-1)/2)*Math.min(.12, .45/rows)};
     let paths=entryPaths.get(i);
     if(!paths||paths.x!==dest.x||paths.y!==dest.y){
       const approach=ArcadeWorld.route(door,dest,world);
-      const patrol=actor.pace?ArcadeWorld.route(dest,{x:Math.min(.86,dest.x+.19),y:dest.y},world):null;
-      const back=patrol && {...patrol,points:[...patrol.points].reverse()};
-      paths={...dest,approach,patrol,back};entryPaths.set(i,paths);
+      paths={...dest,approach};entryPaths.set(i,paths);
     }
     let path=paths.approach,elapsed=station||guideStep>=0?path.duration:age;
-    if(paths.patrol && guideStep<0 && age>path.duration && actor.pace){
-      elapsed=(age-path.duration)*actor.pace;
-      path=paths.patrol;
-      const period=Math.max(1,path.duration);
-      const cycle=Math.floor(elapsed/period);
-      elapsed=elapsed%period;
-      if(cycle%2)path=paths.back;
-    }
     const manual=i===controlled && driven;
     const point=manual||ArcadeWorld.position(path,elapsed);
     if(!station && guideStep<0 && !view.field && (manual?manual.moving:age<path.duration)){
@@ -346,6 +339,7 @@ function paint(now){
   for(const m of track)ArcadeEnvironment.drawTrail(ctx,[{...m,alpha:1-(now-m.time)/450}],WorldEngine.surfaceAt(world,m),mw,h);
   ArcadeEnvironment.drawTrail(ctx,trails,world.surface,mw,h);
   const activity=ArcadeHUD.structureActivity(now,scanTime,group.actors,lanes);
+  for(let side=0;side<2;side++)activity.gates[side]=Math.max(activity.gates[side]||0,1-(now-targetPulse[side])/350);
   activity.spawn=ArcadeHUD.spawnOpening(now,spawnUntil)*doorwayMotion;
   const cutoff=view.range?view.range[0]/(view.range[1]||1):.5;
   const fixture=part=>ArcadeEnvironment.drawFixtures(ctx,mw,h,world,config.archetype,style,accent,activity,hover,lowProfile,now,cutoff,part);
@@ -472,24 +466,28 @@ async function start(data,path){
     land=document.createElement('canvas');land.width=560;land.height=300;
     ArcadeEnvironment.ground(land.getContext('2d'),land.width,land.height,data.theme);
   }
-  scanTime=-Infinity;savedPilot=null;
+  scanTime=-Infinity;lastChoice=null;targetPulse.fill(-Infinity);savedPilot=null;
   reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort(world);round=withFieldTest(createRound(data));arrival=performance.now();
   lines=ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data).map(a=>({...a,station:true}));
-  practiceActors.push({...practiceActors[0],station:false,slot:2,art:0});guideStep=continuing?-1:0;continuing=false;spawnUntil=guideStep<0?arrival+500:-Infinity;
+  practiceActors.push({...practiceActors[0],station:false,slot:2,art:0});guideStep=ArcadeTutorial.has(gameId)||params.get('transition')==='1'?-1:0;spawnUntil=guideStep<0?arrival+500:-Infinity;
   $('sources').replaceChildren();render();emit('start');
+  if(tutorialMode && guideStep<0)finishGuide();
 }
 function pointerDestination(e){
   if(!round||!layout)return null;
   const b=canvas.getBoundingClientRect(),x=(e.clientX-b.left)*worldWidth/b.width,y=(e.clientY-b.top)*worldHeight/b.height-floorTop();
   const coord={x:x/mapWidth(),y:y/floorHeight()};
   const hit=hits.find(h=>Math.abs(x-h.x)<25 && y>=h.y-50 && y<=h.y+11);
-  const sign=signs().find(s=>Math.abs(x-s.x*mapWidth())<Math.max(25,mapWidth()*.055) && Math.abs(y-s.y*floorHeight())<25);
+  const sign=signs().filter(s=>Math.abs(x-s.x*mapWidth())<Math.max(25,mapWidth()*.055) && Math.abs(y-s.y*floorHeight())<15)
+    .sort((a,b)=>Math.abs(coord.y-a.y)-Math.abs(coord.y-b.y))[0];
   if(sign)return {point:sign,action:'interact'};
-  if(hit && !hit.station)return {point:{x:hit.x/mapWidth(),y:(hit.y+11)/floorHeight()},action:'inspect'};
+  if(hit && !hit.station)return {point:hit===hits.find(h=>!h.station)?world.structures.checkpoint:{x:hit.x/mapWidth(),y:(hit.y+11)/floorHeight()},action:'inspect'};
   if(hit?.station)return {point:ArcadeWorld.zone(world,hit.slot),action:'interact'};
   if(coord.y<0||coord.y>=1||coord.x<0||coord.x>=1)return null;
   const target=ArcadeWorld.targetAt(world,coord);
-  return {point:target==='checkpoint'?world.structures.checkpoint:coord,action:target==='checkpoint'?'inspect':target===null?'':'interact'};
+  if(target==='checkpoint')return {point:world.structures.checkpoint,action:'inspect'};
+  if(target!==null)return {point:ArcadeWorld.zone(world,target),action:'interact'};
+  return {point:coord,action:''};
 }
 canvas.onpointermove=e=>{canvas.style.cursor=pointerDestination(e)?'pointer':'default';};
 canvas.onclick=e=>{
@@ -521,7 +519,7 @@ window.addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));
 window.addEventListener('blur',()=>held.clear());
 window.addEventListener('message',e=>{
   if(parent===window||e.source!==parent||e.data?.type!=='LOAD_CONFIG'||origin&&e.origin!==origin)return;
-  origin=e.origin;start(e.data.config,configPath);
+  origin=e.origin;gameId=e.data.gameId||gameId;start(e.data.config,configPath);
 });
 fetch(configPath).then(r=>r.json()).then(c=>{if(!generation)return start(c,configPath);}).catch(e=>{$('subject').textContent='Unable to load activity: '+e.message;});
 requestAnimationFrame(paint);

@@ -5,7 +5,7 @@ function createRound({mechanics:m,theme:t}) {
   const auras=order.map(()=>Number(Math.random()<0.5));
   let i=0,pick=null,correct=0,done=false,note='',inspected=false;
   return {
-    view(){return {phase:'Evidence desk',lanes:t.options,accuracy:100*correct/(i||1),score:[correct,i-correct],subject:t.claims[order[Math.min(i,order.length-1)]],
+    view(){return {phase:'Evidence desk',readyToSubmit:inspected && pick!==null,lanes:t.options,accuracy:100*correct/(i||1),score:[correct,i-correct],subject:t.claims[order[Math.min(i,order.length-1)]],
       actors:[{slot:order[Math.min(i,order.length-1)]%2,aura:auras[Math.min(i,order.length-1)],verified:inspected,label:t.claims[order[Math.min(i,order.length-1)]]}],
       actions:t.options,names:t.options.slice(0,2),sources:t.sources||[t.setting],selected:pick,
       spotlight:inspected?'actions':'sources',success:correct===m.answers.length,metric:'Source Trust',value:i?Math.round(100*correct/i):0,done,note,

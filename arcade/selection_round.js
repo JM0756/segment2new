@@ -11,7 +11,7 @@ function createRound({archetype,mechanics:m,theme:t}) {
   const subject=neighbors?t.setting+' · '+m.target:reward?t.axes+' · Goal: '+names[m.goal]:t.setting;
   const detail=reward?m.routes.map((route,i)=>names[i]+' '+route.join('/')).join(' · '):t.hint;
   return {
-    view(){return {phase:'Selection',actions,names,score:[Number(done),attempts-Number(done)],
+    view(){return {phase:'Selection',readyToSubmit:picks.length===(neighbors?m.k:reward?1:m.order.length),actions,names,score:[Number(done),attempts-Number(done)],
       teamNames:['Solved','Misses'],metric:'Accuracy',value:done?Math.round(100/attempts):0,accuracy:done?100/attempts:0,
       subject,detail,note,done,submit:t.check,picks:picks.map(i=>order.indexOf(i)),actors};},
     fieldCases(){
