@@ -5,14 +5,7 @@
       "type": "object",
       "properties": {
         "type": {
-          "enum": [
-            "snow",
-            "wood",
-            "stone",
-            "metal",
-            "grass",
-            "carpet"
-          ]
+          "$ref": "#/$defs/visual"
         },
         "speedMultiplier": {
           "type": "number",
@@ -63,21 +56,59 @@
               "maximum": 0.9
             },
             "style": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/visual"
             },
             "label": {
               "type": "string",
               "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "sprite": {
+              "type": "string",
+              "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
             }
           },
           "required": [
             "x",
             "y",
-            "style",
             "label"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "style"
+              ]
+            }
+          ]
         },
         "checkpoint": {
           "type": "object",
@@ -98,8 +129,7 @@
               "maximum": 0.11
             },
             "style": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/visual"
             },
             "reaction": {
               "enum": [
@@ -107,16 +137,55 @@
                 "stamp_press",
                 "rune_pulse"
               ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "sprite": {
+              "type": "string",
+              "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
             }
           },
           "required": [
             "x",
             "y",
             "radius",
-            "style",
             "reaction"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "style"
+              ]
+            }
+          ]
         },
         "leftTarget": {
           "type": "object",
@@ -142,8 +211,7 @@
               "maximum": 0.26
             },
             "style": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/visual"
             },
             "reaction": {
               "enum": [
@@ -151,6 +219,34 @@
                 "net_ripple",
                 "beacon_flash"
               ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "sprite": {
+              "type": "string",
+              "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
             }
           },
           "required": [
@@ -158,10 +254,21 @@
             "y",
             "width",
             "height",
-            "style",
             "reaction"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "style"
+              ]
+            }
+          ]
         },
         "rightTarget": {
           "type": "object",
@@ -187,8 +294,7 @@
               "maximum": 0.26
             },
             "style": {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/visual"
             },
             "reaction": {
               "enum": [
@@ -196,6 +302,34 @@
                 "net_ripple",
                 "beacon_flash"
               ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "sprite": {
+              "type": "string",
+              "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
             }
           },
           "required": [
@@ -203,10 +337,21 @@
             "y",
             "width",
             "height",
-            "style",
             "reaction"
           ],
-          "additionalProperties": false
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "style"
+              ]
+            }
+          ]
         }
       },
       "required": [
@@ -249,13 +394,35 @@
             "maximum": 0.2
           },
           "kind": {
-            "enum": [
-              "crate",
-              "desk",
-              "tree",
-              "boulder",
-              "pillar"
-            ]
+            "$ref": "#/$defs/visual"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "visualPrompt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1
+          },
+          "primaryColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "accentColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "sprite": {
+            "type": "string",
+            "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
           }
         },
         "required": [
@@ -263,10 +430,98 @@
           "x",
           "y",
           "w",
-          "h",
-          "kind"
+          "h"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "kind"
+            ]
+          }
+        ]
+      }
+    },
+    "hazards": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "visualPrompt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1
+              },
+              "primaryColor": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              "accentColor": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              "sprite": {
+                "type": "string",
+                "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
+              },
+              "dx": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "dy": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0.04,
+                "maximum": 0.96
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0.06,
+                "maximum": 0.9
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false,
+            "dependentRequired": {
+              "x": [
+                "y"
+              ],
+              "y": [
+                "x"
+              ]
+            }
+          }
+        ]
       }
     }
   },
@@ -275,5 +530,52 @@
     "structures",
     "obstacles"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "visual": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "sprite": {
+              "type": "string",
+              "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
 }

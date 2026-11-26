@@ -120,3 +120,46 @@ test('passive glow, conduit dots and 24 ambient particles advance without theme 
   assert.equal(b.dots.length,26);
   for(let i=0;i<26;i++)assert.notDeepEqual(a.dots[i],b.dots[i]);
 });
+
+test('classifier presentation frames the playable map and honors atmospheric layer choices',()=>{
+  const layouts=['compact','balanced','panoramic'].map(sceneryLayout=>hud.deckBounds(900,500,{sceneryLayout}));
+  assert.ok(layouts[0].y<layouts[1].y&&layouts[1].y<layouts[2].y);
+  const calls=[];
+  const ctx=new Proxy({}, {get:(obj,k)=>obj[k]||((...args)=>calls.push([k,...args]))});
+  const draw=(weather,particles)=>{
+    calls.length=0;
+    hud.drawClimate(ctx,900,500,550,{weather:{type:weather,intensity:.6,angle:-20,tint:'#adf'},
+      particles:{type:particles,density:.4,tint:'#abc'}},layouts[1]);
+    return calls.map(c=>c[0]);
+  };
+  assert.deepEqual(draw('none','none'),['save','restore']);
+  for(const [type,op] of Object.entries({rain:'ellipse',snow:'fillRect',fog:'fillRect',embers:'fillRect',bubbles:'arc',dust:'fillRect'}))
+    assert.ok(draw(type,'none').includes(op));
+  for(const type of ['sun_rays','clouds','wind_streaks','stars','spores','neon_glints'])
+    assert.ok(draw('none',type).length>2);
+  const textures=new Set();
+  for(const [i,material] of ['lab_tile','steel_grating','cobblestone','wood_deck','stone_slate','noir_concrete'].entries()){
+    const {x,y,width,height}=layouts[i%3];assert.ok(x>0&&y>0&&x+width<900&&y+height<500);
+    assert.ok(width/900>=.60 && width/900<=.65 && height/500>=.52 && height/500<=.58);
+    assert.equal(x,(900-width)/2);
+    calls.length=0;hud.drawDeck(ctx,480,220,{material,borderStyle:'stone_curb',deckFill:'#134',gridLine:'#789',borderAccent:'#abc'});
+    textures.add(JSON.stringify(calls));
+    assert.ok(calls.filter(c=>c[0]==='fillRect').length>10);
+  }
+  assert.equal(textures.size,6);
+});
+
+test('novel scenery uses authored texture, motion and prop attributes',()=>{
+  const calls=[];
+  const ctx=new Proxy({}, {get:(obj,key)=>obj[key]||((...args)=>calls.push([key,...args]))});
+  hud.drawDeck(ctx,240,120,{material:{name:'basalt_lace',pattern:'cobble'},groutColor:'#456',deckFill:'#123',borderAccent:'#789'});
+  assert.ok(calls.some(([k])=>k==='ellipse'));
+  const climate={particles:{density:1,type:'golden_pollen'},particleConfig:{shape:'ring',count:3,size:4,vx:5,vy:-2,color:'#fed'}};
+  calls.length=0;hud.drawClimate(ctx,200,100,1000,climate);
+  assert.equal(calls.filter(([k])=>k==='arc').length,3);
+  assert.deepEqual(calls.find(([k])=>k==='arc').slice(1,4),[5,98,4]);
+  calls.length=0;hud.drawScenery(ctx,{name:'stone_planters',primaryColor:'#a22',accentColor:'#ba4'},20,30,null,'#fff');
+  assert.ok(calls.some(([k,label])=>k==='fillText'&&label==='stone planters'));
+  calls.length=0;hud.drawScenery(ctx,{name:'custom'},20,30,{},'#fff');
+  assert.equal(calls[0][0],'drawImage');
+});

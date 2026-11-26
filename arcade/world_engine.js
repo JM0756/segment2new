@@ -55,7 +55,13 @@ const WorldEngine = (() => {
       }
     }));
     const vents=[{x:7.5/width,y:6.5/height,dx:0,dy:1},{x:13.5/width,y:6.5/height,dx:0,dy:-1}];
-    const hazards=vents.slice(0,Math.max(0,tier-1)).map(v=>({...v,active:true,length:3.2,width:1.55,pushForce:24}));
+    const hazards=vents.slice(0,Math.max(0,tier-1)).map((v,i)=>{
+      const item=physical.hazards?.[i],spec=typeof item==='string'?{name:item}:item;
+      const dx=spec?.dx??v.dx,dy=spec?.dy??v.dy,norm=Math.hypot(dx,dy);
+      const free=spec?.x!=null&&spec?.y!=null&&[...Object.values(structures),...obstacles].every(p=>
+        Math.abs(p.x-spec.x)>.09||Math.abs(p.y-spec.y)>.12);
+      return {...spec,...v,x:free?spec.x:v.x,y:free?spec.y:v.y,dx:norm?dx/norm:v.dx,dy:norm?dy/norm:v.dy,active:true,length:3.2,width:1.55,pushForce:24};
+    });
     return {...physical,hazards,surface:{...physical.surface,speedMultiplier:1,drag:.9},grid:rows,structures,obstacles};
   }
   function path(rows,from,to){

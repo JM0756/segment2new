@@ -52,7 +52,11 @@ def test_first_pass(tmp_path, game):
     for name in ("config_schema", "default", "levels"):
         fixture = ARCADE / game / "source" / f"{name}.json"
         assert prompt[name] == json.loads(fixture.read_text())
-    assert json.loads(path.read_text()) == cfg
+    saved = json.loads(path.read_text())
+    if game == "Feature-Classifier":
+        assert saved.pop("environment")["platform"]
+        assert saved.pop("titleScreen")["catchyTitle"]
+    assert saved == cfg
     assert record["passed"] and record["first_pass_success"]
     assert record["attempts"] == 1
     assert json.loads(path.with_suffix(".meta.json").read_text())["model"] == "mock-model"
@@ -376,7 +380,7 @@ def test_world_defaults_and_shipped_maps(tmp_path, game):
     ({"x":.04, "w":.19}, "fit inside"),
     ({"x":.24, "y":.48}, "walking clearance"),
     ({"x":.5, "y":.36, "w":.035, "h":.035}, "lane clear"),
-    ({"kind":"statue"}, "statue"),
+    ({"kind":""}, "not valid"),
 ])
 def test_invalid_world_footprints(patch, reason):
     cfg = default("Feature-Classifier")
@@ -580,7 +584,8 @@ def test_generator_repairs_missing_and_unknown_layouts(tmp_path):
     invalid["theme"]["environment"]["layout"] = "invalid"
     path, record, _ = run(tmp_path, map(json.dumps, [old, invalid, correct]))
     assert path and record["attempts"] == 3
-    assert json.loads(path.read_text()) == correct
+    saved = json.loads(path.read_text())
+    assert {k:saved[k] for k in correct} == correct
 
 
 def test_signal_sorter_rejects_ambiguous_wave_and_wrong_tier_size():
@@ -1025,7 +1030,7 @@ def test_lawn_traits_drive_gameplay_labels_and_distinct_art_across_tiers(tmp_pat
         cfg = json.loads(path.read_text())
         labels = cfg["theme"]["featureLabels"]
         assert [labels[k] for k in ("round","spiky","green","red")] == [
-            "Leafy green stems and Glowing sun-core","Tattered suits","Terracotta flowerpot","Yellow sun-orb"]
+            "Leafy green stems","Tattered suits","Terracotta flowerpot","Yellow sun-orb"]
         if tier > 1:
             assert labels["fast"] == "Metal watering can" and "beacon" not in labels["slow"].lower()
         prompts = [cli.character_prompt(cfg, i, "Garden Plants versus Lawn Zombies") for i in range(2)]
@@ -1074,3 +1079,120 @@ def test_named_prompt_cues_survive_a_template_only_bundle(tmp_path):
         labels=json.loads(path.read_text())["theme"]["featureLabels"]
         assert [labels[k] for k in ("core","round","spiky","aura","green","red")]==[
             "Body structure","Pulsing translucent bell","Metallic seams","Reef company","Cyan coral glow","Remora followers"]
+
+@pytest.mark.parametrize("setting,expected", [
+    ("Midnight precinct", ("rain","sun_rays","noir_concrete","noir_serif","noir_brass")),
+    ("Abyssal reef", ("bubbles","spores","steel_grating","cyber_mono","abyssal_neon")),
+    ("Alpine summit", ("snow","clouds","stone_slate","field_stencil","alpine_console")),
+])
+def test_classifier_visual_bundle(tmp_path, setting, expected):
+    client = Mock(model="test")
+    client.complete.return_value = json.dumps({"level1": {
+        "theme":{"title":setting}, "environment":{"weather":{"angle":-21},"platform":{"bayRightAccent":"#aa9933"}},
+        "titleScreen":{"divisionBadge":"SURVEY TEAM"}
+    }})
+    bundle = {}
+    path = generate(client,"Feature-Classifier","Overfitting",setting,1,bundle=bundle,root=tmp_path,log=tmp_path/"log")
+    for level in [1,2]:
+        if level==2:
+            path=generate(client,"Feature-Classifier","Overfitting",setting,2,bundle=bundle,previous=path,root=tmp_path,log=tmp_path/"log")
+        config=json.loads(path.read_text())
+        env,title=config["environment"],config["titleScreen"]
+        assert (env["weather"]["type"],env["particles"]["type"],env["platform"]["material"],title["fontStyle"],title["artStyle"])==expected
+        assert title["catchyTitle"]==setting.upper() and title["divisionBadge"]=="SURVEY TEAM"
+        assert env["weather"]["angle"]==-21 and env["platform"]["bayRightAccent"]=="#aa9933"
+    client.complete.assert_called_once()
+
+def test_compact_classifier_labels_and_perimeter_backdrop(tmp_path):
+    cfg = default("Feature-Classifier")
+    cfg["theme"]["trueFeature"] = {"name":"Spore Pulse (stable cue)", "values":["Gear Seam, visible at night","Moss Tag — class marker"]}
+    cfg["theme"]["spuriousFeatures"] = [{"name":"Amber Pollen that follows visitors","values":["Gold flecks","Blue motes"]}]
+    path, _, _ = run(tmp_path,[json.dumps(cfg)])
+    theme=json.loads(path.read_text())["theme"]
+    assert theme["trueFeature"]=={"name":"Spore Pulse","values":["Gear Seam","Moss Tag"]}
+    assert theme["spuriousFeatures"][0]["name"]=="Amber Pollen"
+    assert [theme["featureLabels"][k] for k in ("core","round","spiky","aura")]==["Spore Pulse","Gear Seam","Moss Tag","Amber Pollen"]
+    prompt=cli.classifier_backdrop("Glasshouse",theme["environment"],"Dome Survey")
+    assert all(s in prompt for s in ("Glasshouse","room shell","top, left and right edges","empty lower-middle floor","No central furniture"))
+
+
+@pytest.mark.parametrize("bundled", [False, True])
+def test_empty_generation_uses_valid_theme_fallback(tmp_path, monkeypatch, bundled):
+    pause = Mock()
+    monkeypatch.setattr(cli, "sleep", pause)
+    client = Mock(model="test")
+    client.complete.side_effect = ["", " \n", "No configuration available."]
+    path = generate(client, "Feature-Classifier", "Visual cues",
+                    "Alpine survey. True feature: Body shape (Rounded outline vs Angular outline). "
+                    "Spurious feature: Trim (Amber pollen vs Moss tag).",
+                    1, bundle={} if bundled else None, root=tmp_path, log=tmp_path/"log",
+                    raise_on_failure=True)
+    config = json.loads(path.read_text())
+    assert config["environment"]["weather"]["type"] == "snow"
+    assert config["theme"]["featureLabels"]["green"] == "Amber pollen"
+    assert "fallback_reason" in json.loads(path.with_suffix(".meta.json").read_text())
+    assert client.complete.call_count == 3
+    assert [call.args for call in pause.call_args_list] == [(1.5,), (3.,)]
+
+
+def test_empty_generation_retries_then_uses_gateway_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "sleep", Mock())
+    cfg = default("Feature-Classifier")
+    path, record, client = run(tmp_path, ["", json.dumps(cfg)])
+    assert json.loads(path.read_text())["theme"]["title"] == cfg["theme"]["title"]
+    assert record["attempts"] == client.complete.call_count == 2
+    assert record["failure_categories"] == ["json_parse_error"]
+
+
+@pytest.mark.parametrize("prefix,suffix", [("Here is the config:\n", "\nDone."),
+                                          ("```json\n", "\n```")])
+def test_completion_extracts_object_and_repairs_trailing_commas(prefix, suffix):
+    result = cli.parse_config(prefix + '{"label":"comma, } stays","levels":[{"n":1,},],}' + suffix)
+    assert result == {"label":"comma, } stays","levels":[{"n":1}]}
+
+
+@pytest.mark.parametrize("status", [200, 429])
+def test_gateway_retries_empty_or_rate_limited_completion(monkeypatch, status):
+    valid = Mock(status_code=200)
+    valid.json.return_value = {"choices":[{"message":{"content":"{}"}}]}
+    first = Mock(status_code=status)
+    first.json.side_effect = ValueError("Empty body")
+    send = Mock(side_effect=[first, valid])
+    pause = Mock()
+    monkeypatch.setattr("generator.llm_client.requests.post", send)
+    monkeypatch.setattr("generator.llm_client.sleep", pause)
+    assert LLMClient().complete([]) == "{}"
+    pause.assert_called_once_with(1.5)
+    if status == 200:
+        assert send.call_args_list[1].kwargs["json"]["max_tokens"] > send.call_args_list[0].kwargs["json"]["max_tokens"]
+
+def test_open_scenery_assets_validate_and_reuse_pixellab_cache(tmp_path,monkeypatch):
+    source=ARCADE/"Feature-Classifier/source"
+    cfg=cli.tier_default(source,2)
+    cli.classifier_presentation(cfg,"Glasshouse",None)
+    env=cfg["theme"]["environment"]
+    env.update(floor_style="cobblestone",props=["brass_valves",{"name":"glowing_mushrooms","primaryColor":"#996633"}])
+    cfg["environment"]["platform"].update(material={"name":"luminous_basalt","pattern":"pavers"},groutColor="#223322")
+    cfg["environment"]["particles"].update(type="golden_pollen",shape="mote",vx=2,vy=-3,count=14,color="#ddcc99")
+    world=cfg["world_physics"]
+    world["obstacles"][0]["kind"]={"name":"stone_planters","visualPrompt":"Moss-lined stone planters","accentColor":"#77aa44"}
+    world["structures"]["checkpoint"].update(name="sampling_dais",visualPrompt="Glass sampling dais")
+    world["hazards"]=[dict(name="misting_vent",dx=.5,dy=-.5)]
+    assert cli.validate(source,"Feature-Classifier",cfg,2) is None
+    monkeypatch.setenv("PIXELLAB_API_KEY","test")
+    monkeypatch.setenv("IMAGE_PROVIDER","pixellab")
+    scenery=[]
+    def send(request,timeout):
+        payload=json.loads(request.data)
+        if 'isometric pixel art' in payload['description']:
+            assert payload['no_background'] is True
+            scenery.append(payload['description'])
+        return image_response({"base64":base64.b64encode(PNG).decode()})
+    monkeypatch.setattr("generator.image_client.urlopen",send)
+    for run in ("first","second"):
+        level=copy.deepcopy(cfg)
+        directory=tmp_path/run
+        cli.attach_sprites(level,None,source,"Feature-Classifier",2,directory,"sample")
+        assets=[item["sprite"] for item in cli.scenery_items(level) if "sprite" in item]
+        assert len(assets)==5 and all((directory/path).is_file() for path in assets)
+    assert len(scenery)==5 and any("Moss-lined stone planters" in prompt for prompt in scenery)

@@ -116,7 +116,7 @@ let passedRun=false,activeGameId;
 function closeChat(){
   $('stageChat').hidden=true;$('remixToggle').setAttribute('aria-expanded','false');
 }
-function play(item,file,requested){
+function play(item,file,requested,started=false){
   active=item;closeChat();passedRun=false;
   const first=item.levels[1]||file;
   const paths=[item.preview_path||first,first,item.levels[2],item.levels[3]];
@@ -140,6 +140,7 @@ function play(item,file,requested){
   const url=new URL('/arcade/'+item.game+'/source/index.html',location.origin);
   url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,lastLevel,game:item.game,gameId:activeGameId,run:runId});
   if(classifier){
+    if(started)url.searchParams.set('started','1');
     url.searchParams.set('unlocked',Math.min(lastLevel,unlocked));
     url.searchParams.set('progress',JSON.stringify(ArcadeProgress.read(activeGameId)));
   }
@@ -155,11 +156,11 @@ window.addEventListener('message',e=>{
   const classifier=active.game==='Feature-Classifier';
   if(classifier&&m.type==='ARCADE_SELECT'){
     if(level>0&&Number.isInteger(m.targetLevel)&&m.targetLevel>=1&&m.targetLevel<=unlocked&&active.levels[m.targetLevel])
-      play(active,null,m.targetLevel);
+      play(active,null,m.targetLevel,true);
     return;
   }
   if(m.type==='ARCADE_NEXT'){
-    if(passedRun&&level<3)play(active,null,level+1);
+    if(passedRun&&level<3)play(active,null,level+1,true);
     return;
   }
   if(m.type!=='ARCADE_PROGRESS')return;

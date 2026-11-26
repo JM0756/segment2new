@@ -150,14 +150,7 @@
               "minLength": 1
             },
             "floor_style": {
-              "enum": [
-                "deck",
-                "dance_tiles",
-                "parquet",
-                "asphalt",
-                "stone",
-                "turf"
-              ]
+              "$ref": "#/$defs/visual"
             },
             "primary_color": {
               "type": "string",
@@ -174,25 +167,7 @@
             "props": {
               "type": "array",
               "items": {
-                "enum": [
-                  "viewport",
-                  "airlock",
-                  "consoles",
-                  "red_cups",
-                  "dj_booth",
-                  "string_lights",
-                  "dance_tiles",
-                  "velvet_booths",
-                  "brass_rail",
-                  "stage_spotlight",
-                  "barrels",
-                  "rubble",
-                  "trees",
-                  "crates",
-                  "shelves",
-                  "desk_lamps",
-                  "barriers"
-                ]
+                "$ref": "#/$defs/visual"
               },
               "minItems": 2,
               "maxItems": 8,
@@ -271,5 +246,52 @@
     "mechanics",
     "theme"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "visual": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "sprite": {
+              "type": "string",
+              "pattern": "^assets/[a-zA-Z0-9_-]+[.]png$"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
 }

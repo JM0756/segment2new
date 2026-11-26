@@ -83,5 +83,8 @@ def geometry_error(world):
     lane = (min(entry["x"],check["x"])-.045,entry["y"],max(entry["x"],check["x"])+.045,check["y"])
     if any(meets(b,lane) for b in boxes[len(occupied):]):
         return "Keep the entry-to-checkpoint lane clear."
+    vents = [box(v,.06,.06) for v in world.get("hazards",[]) if isinstance(v,dict) and "x" in v]
+    if any(meets(vent,other) for i,vent in enumerate(vents) for other in boxes+vents[:i]):
+        return "Keep hazards clear of landmarks, obstacles and each other."
     if len({o["id"] for o in world["obstacles"]}) != len(world["obstacles"]):
         return "Give each obstacle a unique id."

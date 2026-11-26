@@ -42,9 +42,10 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
         "Place one S entry, ? inspection pad and L/R gates at their world_physics coordinates. Connect all four by walking paths. "
         "Keep level 1 open, add obstacles at level 2 and terrain zones at level 3.")
     if archetype == "Feature-Classifier":
+        inputs["visual_keys"] = {"environment": {"weather": {}, "particles": {}, "platform": {}}, "titleScreen": {"catchyTitle": "", "divisionBadge": "", "tagline": "", "fontStyle": "", "artStyle": ""}}
         inputs["cue_example"] = {"name":"aura", "role":"spurious", "values":["crimson_mist","blue_glow"],
                                  "label":"Aura", "value_labels":{"crimson_mist":"Crimson mist","blue_glow":"Blue glow"}}
-        inputs["constraints"].append("Copy concrete visual traits and distractors from the request verbatim into the two class-ordered trueFeature.values and spuriousFeatures[0].values. Put additional distractors in noise value_labels. Keep the exact requested feature names and value labels in tutorial and subsequent tiers. Bind labels to the actual mechanics value IDs, including in theme-only patches. Give every cue a label and value_labels as in cue_example. These are normalized into theme.featureLabels.")
+        inputs["constraints"].append("Use concise 1–3 word visual labels without parenthetical explanations or trailing clauses. Copy concrete visual traits and distractors from the request into the two class-ordered trueFeature.values and spuriousFeatures[0].values. Put additional distractors in noise value_labels. Keep the exact requested feature names and value labels in tutorial and subsequent tiers. Bind labels to the actual mechanics value IDs, including in theme-only patches. Give every cue a label and value_labels as in cue_example. These are normalized into theme.featureLabels.")
     if generate_sprites:
         inputs["constraints"].append(
             "In theme.sprites, supply class0_prompt and class1_prompt for the first two "
@@ -62,7 +63,7 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
     inputs["constraints"].append(
         "Design a complete theme.environment for this specific world: setting_name, floor_style, "
         "primary_color, secondary_color, accent_color and at least two distinct perimeter props. "
-        "Each tier visits a distinct location within the world. Change layout, perimeter props and palette while preserving class identities, feature identifiers and cue terminology. Select the architectural layout matching the scenario (space-station, speakeasy, party, wasteland, laboratory, clinical, newsroom, archive, reactor-core, observation-deck, forest-edge, misty-hollow, ancient-ruins). Choose layout, floor_style and props from config_schema. Omit preset for a custom setting. "
+        "Each tier visits a distinct location within the world. Change layout, perimeter props and palette while preserving class identities, feature identifiers and cue terminology. Select the architectural layout matching the scenario (space-station, speakeasy, party, wasteland, laboratory, clinical, newsroom, archive, reactor-core, observation-deck, forest-edge, misty-hollow, ancient-ruins). Use original setting-specific materials and props. Give obstacles, hazards and station landmarks name, visualPrompt, role, primaryColor and accentColor. Put hazards in world_physics.hazards with dx/dy. Set platform.pattern (cobble/pavers/grate/planks/tiles/organic) and groutColor. Choreograph weather and particles with shape (droplet/flake/mote/streak/ring/spark), vx/vy in pixels per second, size, count, color, glow and pulseHz. Omit preset for a custom setting. "
         "Never supply class0Sprite, class1Sprite, backgroundSprite or image asset paths; the image stage writes them."
     )
     if level == 3:
@@ -107,5 +108,5 @@ supply a display label for every entity, feature and value, and ensure a winning
 Rewrite every visible label, tutorial instruction, hint and feedback message for the requested theme.
 Leave zero default-theme text behind. In a regeneration retain the world, entity identities and terminology
 from the supplied accepted activity. Scale difficulty to the requested tier. Never add metadata or unsupported UI fields."""},
-        {"role": "user", "content": json.dumps(inputs, ensure_ascii=False)},
+        {"role": "user", "content": json.dumps(inputs, ensure_ascii=False, separators=(",", ":"))},
     ]

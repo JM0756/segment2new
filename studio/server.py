@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=ROOT / '.env', override=True)
 load_env(ROOT / '.env')
 
-from generator.image_client import clean_sprite_background
+from generator.image_client import clean_sprite_background, scenery_items
 from generator.generate import ARCHETYPES, GAMES, generate, validate
 from generator.llm_client import LLMClient, APIError, normalize_base
 
@@ -191,12 +191,24 @@ def copy_art(config, original_path, directory, prefix=''):
         else:
             theme.setdefault('sprites', {})[slot+'_asset'] = relative
 
+    for item in scenery_items(config):
+        if item.get('sprite'):
+            source = image_path(original_path,item['sprite'])
+            relative = 'assets/'+prefix+source.name
+            target = directory/relative
+            target.parent.mkdir(exist_ok=True)
+            if source!=target:
+                shutil.copyfile(source,target)
+            item['sprite'] = relative
+
 def bundle_levels(folder):
     return {int(path.stem[-1]):public(path) for path in sorted(folder.glob('*_L[123].json'))}
 
 def local_artwork(config_path):
     config = json.loads(config_path.read_text())
-    for _,asset in artwork(config):
+    assets = [url for _,url in artwork(config)]
+    assets.extend(item['sprite'] for item in scenery_items(config) if item.get('sprite'))
+    for asset in assets:
         try:
             yield image_path(config_path,asset)
         except ValueError:
@@ -246,7 +258,9 @@ def save_game(game, path, url, drafts):
             for url in bundle_levels(path.parent).values():
                 source = ROOT/url.lstrip('/')
                 config = json.loads(source.read_text())
-                for _,asset in artwork(config):
+                assets = [url for _,url in artwork(config)]
+                assets.extend(item['sprite'] for item in scenery_items(config) if item.get('sprite'))
+                for asset in assets:
                     image = image_path(source,asset)
                     if not image.is_relative_to(path.parent) or not image.is_file() or asset.startswith('/'):
                         raise ValueError('The draft contains unavailable artwork.')

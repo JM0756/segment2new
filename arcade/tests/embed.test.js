@@ -48,6 +48,8 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       if (configPath !== 'default.json') {
         config.theme.backgroundImage='assets/scene.png';
         if(dir==='Feature-Classifier'){
+          config.environment={platform:{material:'wood_deck',borderStyle:'wood_trim',sceneryLayout:'panoramic',deckFill:'#345634',gridLine:'#284925',borderAccent:'#71a66c',bayLeftAccent:'#81ab64',bayRightAccent:'#bc8643'},weather:{type:'dust',intensity:.4,angle:12,tint:'#bb9966'},particles:{type:'sun_rays',density:.3,tint:'#ffcc77'}};
+          config.titleScreen={catchyTitle:'Orchard Watch',divisionBadge:'FIELD UNIT',tagline:'Trace the reliable stem.',fontStyle:'storybook_bold',artStyle:'botanical_parchment'};
           Object.assign(config.theme,{title:'Orchard',class0:{name:'Apple'},class1:{name:'Pear'},
             trueFeature:{name:'Stem',values:['Forked','Single']},spuriousFeatures:[{name:'Paint',values:['Ochre','Indigo']}]});
         }
@@ -100,13 +102,46 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
           arena.clientWidth=width;arena.clientHeight=height;frame(performance.now());
           const layout=vm.runInContext('layout',context);
           assert.equal(layout.uiScale,scale);
-          assert.equal(vm.runInContext('mapWidth()*layout.uiScale',context),width);
+          assert.equal(vm.runInContext('Math.round((mapWidth()+2*deck.x)*layout.uiScale)',context),width);
           assert.equal(vm.runInContext('worldWidth*layout.uiScale',context),width);
           assert.equal(arena.width,width*2); // DPR changes resolution independently of layout.
         }
       }
       const read=code=>vm.runInContext(code,context);
       const press=(key,code=key)=>keyDown({key,code,preventDefault(){},target:{matches:()=>false}});
+      if(config.titleScreen){
+        const intro=read('startScreen'),panel=intro.children[0];
+        assert.equal(intro.hidden,false);
+        assert.match(intro.className,/storybook_bold botanical_parchment/);
+        assert.equal(panel.children[1].textContent,'Orchard Watch');
+        assert.equal(panel.children[3].children.length,3);
+        assert.match(panel.children[3].children[0].textContent,/☆☆☆ · Best Score 0/);
+        assert.equal(panel.children[4].textContent,'START');
+        assert.equal(panel.children[5].textContent,'HOW TO PLAY');
+        press('d');assert.equal(read('held.size'),0);
+        panel.children[5].onclick();
+        assert.equal(intro.hidden,true);assert.equal(read('guideStep'),0);
+        read("ArcadeProgress.record(gameId,1,2,85);showStartScreen(config.titleScreen)");
+        assert.match(intro.children[0].children[3].children[0].textContent,/★★☆ · Best Score 85/);
+        intro.children[0].children[4].onclick();assert.equal(intro.hidden,true);
+      }else if(dir==='Feature-Classifier'){
+        const intro=read('startScreen');
+        assert.equal(intro.hidden,false);
+        assert.equal(intro.children[0].children[1].textContent,config.theme.title);
+        assert.equal(read('config.environment.platform.material'),'lab_tile');
+        assert.ok(read('deckTexture && deck.x>0 && deck.width<worldWidth'));
+        assert.equal(read('config.environment.weather.type'),'dust');
+        assert.equal(read('config.environment.particles.type'),'neon_glints');
+        for(const [label,weather,particles,style] of [['Reef','bubbles','spores','abyssal_neon'],
+          ['Detective','rain','sun_rays','noir_brass'],['Summit','snow','clouds','alpine_console']]){
+          context.classLabel=label;
+          const inferred=read("classifierPresentation({...config,environment:undefined,titleScreen:undefined,theme:{...config.theme,title:'Signal Watch',options:[classLabel,'Other']}})");
+          assert.equal(inferred.environment.weather.type,weather);
+          assert.equal(inferred.environment.particles.type,particles);
+          assert.equal(inferred.titleScreen.artStyle,style);
+        }
+        intro.children[0].children[4].onclick();
+      }else assert.equal(read('startScreen.hidden'),true);
       const actions=elements.get('actions');
       assert.ok(actions.children.every(b=>!/^\[[12]\]/.test(b.textContent)));
       assert.match(actions.children[0].textContent,/Move/);
@@ -128,7 +163,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       }
       let now=performance.now();
       arena.getBoundingClientRect=()=>({left:0,top:0,width:arena.clientWidth,height:arena.clientHeight});
-      const click=(x,y)=>arena.onclick({clientX:x*read('mapWidth()*layout.uiScale'),
+      const click=(x,y)=>arena.onclick({clientX:read('(deck?.x||0)*layout.uiScale')+x*read('mapWidth()*layout.uiScale'),
         clientY:read('floorTop()*layout.uiScale')+y*read('floorHeight()*layout.uiScale')});
       function tick(count){for(let n=0;n<count;n++){now+=30;frame(now);}}
       const center=read('world.structures.checkpoint');
@@ -213,6 +248,12 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       assert.equal(read('decisions.length'),before+1);
       await read('start(config,configPath)');frame(now+=30);
       assert.equal(read('guideStep'),-1);
+      if(config.titleScreen){
+        read('enteredTitle=null');await read('start(config,configPath)');
+        assert.equal(read('startScreen.hidden'),false);
+        read('startScreen.children[0].children[4].onclick()');
+        assert.equal(read('startScreen.hidden'),true);assert.equal(read('guideStep'),-1);
+      }
       elements.get('help').onclick();assert.equal(read('guideStep'),0);
       elements.get('skip').onclick();assert.equal(read('guideStep'),-1);
       if(dir==='Feature-Classifier'||dir==='Signal-Sorter'){
@@ -251,7 +292,13 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
             return;
           }
           assert.equal(elements.get('breakdown').children.length,4);
-          assert.match(elements.get('breakdown').children[0].textContent,/cb1 · ♦ Curveball.*Predicted .*Actual /);
+          const [header,classes]=elements.get('breakdown').children[0].children;
+          assert.deepEqual(header.children.map(n=>n.textContent),['cb1','♦ Curveball','✗ Misclassified']);
+          assert.equal(header.children[2].className,'case-missed');
+          assert.match(classes.children[0].textContent,/^Predicted: /);
+          assert.match(classes.children[1].textContent,/^Actual: /);
+          assert.ok(elements.get('auditChoices').children.some(row=>row.children[1].className==='weight-spurious'));
+          assert.match(fs.readFileSync(base+'/style.css','utf8'),/progress\.weight-spurious\{accent-color:#ff8179/);
           assert.match(elements.get('learnedRule').textContent,/score = .*Surface static.*score > 0/);
           const prune=elements.get('auditChoices').children.find(row=>row.children[0].textContent.startsWith('[SPURIOUS]')).children[2];
           assert.equal(prune.textContent,'PRUNE TO 0');

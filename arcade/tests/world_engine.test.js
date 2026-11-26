@@ -125,3 +125,11 @@ test('classifier vent acceleration follows the full directed corridor and vanish
     }
   }
 });
+
+test('custom vent uses authored position and unit flow direction on the projected deck',()=>{
+  const engine=require('../world_engine'),config=require('../Feature-Classifier/source/level2.json');
+  const physical={...config.world_physics,hazards:[{name:'misting_vent',x:.32,y:.73,dx:.5,dy:-.5,primaryColor:'#674521'}]};
+  const [vent]=engine.project(config.tilemap,physical,false,2).hazards;
+  assert.equal(vent.name,'misting_vent');assert.equal(vent.x,.32);assert.equal(vent.y,.73);
+  assert.ok(Math.abs(Math.hypot(vent.dx,vent.dy)-1)<1e-8 && vent.dy<0);
+});

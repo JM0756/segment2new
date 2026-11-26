@@ -9,22 +9,22 @@ import re
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
-from time import monotonic
+from time import monotonic, sleep
 from uuid import uuid4
 
 if __package__:
     from .tilemap import clear_walking_lanes, curated_tilemap, valid_tilemap
     from .world_physics import default_world, edits_since, geometry_error, merge, patch_world
     from .settings import load_env
-    from .image_client import ImageClient, ImageGenerationError
-    from .llm_client import APIError, GatewayTimeout, LLMClient, parse_config
+    from .image_client import ImageClient, ImageGenerationError, classifier_backdrop, scenery_items, visual_name
+    from .llm_client import APIError, GatewayTimeout, LLMClient, UnusableCompletion, parse_config
     from .prompts import UI_KEYS, KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
 else:
     from tilemap import clear_walking_lanes, curated_tilemap, valid_tilemap
     from world_physics import default_world, edits_since, geometry_error, merge, patch_world
     from settings import load_env
-    from image_client import ImageClient, ImageGenerationError
-    from llm_client import APIError, GatewayTimeout, LLMClient, parse_config
+    from image_client import ImageClient, ImageGenerationError, classifier_backdrop, scenery_items, visual_name
+    from llm_client import APIError, GatewayTimeout, LLMClient, UnusableCompletion, parse_config
     from prompts import UI_KEYS, KNOBS, CLASSIFIER, PROMPT_VERSION, SPRITE_STYLE, build_messages
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -190,15 +190,40 @@ def attach_sprites(config, previous, source, archetype, level, directory, stem, 
         surface = config.get("world_physics",{}).get("surface",{}).get("type",env["floor_style"])
         location = environment_name(env["setting_name"])
         description = (f"16-bit top-down 2D pixel art game arena background of {location}, "
-                       f"{surface} walking surface, perimeter details: {', '.join(env['props'])}, "
+                       f"{surface} walking surface, perimeter details: {', '.join(map(visual_name,env['props']))}, "
                        f"palette {env['primary_color']} {env['secondary_color']} {env['accent_color']}, "
                        "atmospheric lighting, open floor for the live checkpoint, gates and obstacles, vibrant cel-shaded pixel art, "
                        "no characters, no text")
+        if archetype == "Feature-Classifier":
+            description = classifier_backdrop(location, env, config.get("titleScreen", {}).get("catchyTitle", theme["title"]))
         try:
             theme["backgroundSprite"] = client.generate(description, directory, f"{stem}_L{level}", "backgroundSprite")
             created.append(directory / theme["backgroundSprite"])
         except ImageGenerationError as exc:
             warnings.append(f"Arena image failed; using the procedural environment. {exc}")
+        if client.pixel_key and client.provider in ("auto","pixellab"):
+            baseline = tier_default(source,level)
+            stock = baseline["theme"]["environment"]["props"]
+            env["props"] = [dict(name=p) if isinstance(p,str) and p not in stock else p for p in env["props"]]
+            world = config.get("world_physics", {})
+            if "hazards" in world:
+                world["hazards"] = [dict(name=v) if isinstance(v,str) else v for v in world["hazards"]]
+            stock_styles = [o.get("kind",o.get("style")) for o in scenery_items(baseline)]
+            for node in scenery_items(config):
+                descriptor = node.get("kind",node.get("style"))
+                if isinstance(descriptor,dict):
+                    node.update(descriptor)
+                elif descriptor and descriptor not in stock_styles:
+                    node.setdefault("name",descriptor)
+                if node.get("visualPrompt") and not node.get("name"):
+                    node["name"] = descriptor or node.get("id","station")
+                if node.get("name"):
+                    try:
+                        node.pop("sprite", None)
+                        palette = {"primaryColor": env["primary_color"], "accentColor": env["accent_color"]}
+                        node["sprite"] = client.scenery(directory, theme["title"], {**palette, **node})
+                    except (ImageGenerationError,OSError) as exc:
+                        warnings.append(f"{node['name']} scenery unavailable: {exc}")
         error = validate(source, archetype, config, level)
         if error:
             raise ImageGenerationError(error)
@@ -297,6 +322,36 @@ def normalize_classifier_labels(config):
             elif not isinstance(labels.get(key), str) or not labels[key].strip():
                 words = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", key)
                 labels[key] = re.sub(r"[_-]+", " ", words).strip().capitalize()
+
+
+def concise_cue(text):
+    # Keep a concrete noun phrase, leaving explanatory prose in the tutorial.
+    phrase = re.sub(r"\s*\([^()]*\)", "", text)
+    phrase = re.split(r"[,;:.!?()—–]|\s+-\s+|\s+(?:which|that|because|while|whereas|when|with)\b",
+                      phrase, maxsplit=1, flags=re.I)[0]
+    words = phrase.split() or text.strip(" ()").split()
+    return " ".join(words[:3])
+
+
+def compact_classifier_cues(theme):
+    labels = theme.get("featureLabels")
+    if isinstance(labels, dict):
+        for key, value in labels.items():
+            if isinstance(value, str):
+                labels[key] = concise_cue(value)
+    def compact(spec):
+        if isinstance(spec, str):
+            return concise_cue(spec)
+        if isinstance(spec, dict):
+            if isinstance(spec.get("name"), str):
+                spec["name"] = concise_cue(spec["name"])
+            if isinstance(spec.get("values"), list):
+                spec["values"] = [concise_cue(v) if isinstance(v,str) else v for v in spec["values"]]
+        return spec
+    if "trueFeature" in theme:
+        theme["trueFeature"] = compact(theme["trueFeature"])
+    if isinstance(theme.get("spuriousFeatures"), list):
+        theme["spuriousFeatures"] = [compact(spec) for spec in theme["spuriousFeatures"]]
 
 
 def inherit_classifier_labels(config, previous):
@@ -474,7 +529,61 @@ def unchanged_game(original, response):
     return (isinstance(response.get("theme"),dict) and
             response.get("archetype")==original["archetype"] and
             response.get("mechanics")==original["mechanics"] and
-            authored_theme(response)==authored_theme(original))
+            authored_theme(response)==authored_theme(original) and
+            all(response.get(k)==original.get(k) for k in ("environment","titleScreen")))
+
+
+def classifier_presentation(config, request, previous):
+    """Complete partial visual specifications; preserve authored values across tier patches."""
+    theme = config.get("theme")
+    if not isinstance(theme, dict):
+        return
+    room = theme.get("environment", {})
+    if not isinstance(room, dict):
+        return
+    profiles = [
+        ("reef|ocean|underwater|marine|jellyfish", "bubbles spores steel_grating neon_bevel panoramic cyber_mono abyssal_neon", "Marine Survey"),
+        ("noir|detective|precinct|1920", "rain sun_rays noir_concrete brass_trim balanced noir_serif noir_brass", "Investigations Bureau"),
+        ("alpine|snow|summit|arctic|mountain", "snow clouds stone_slate stone_curb panoramic field_stencil alpine_console", "Summit Survey"),
+        ("forest|garden|botanic|orchard|woodland", "dust spores wood_deck wood_trim balanced storybook_bold botanical_parchment", "Field Research"),
+        ("forge|volcan|foundry|lava", "embers wind_streaks cobblestone iron_railing compact field_stencil industrial_steel", "Materials Division"),
+        ("lab|clinic", "none neon_glints lab_tile neon_bevel compact cyber_mono industrial_steel", "Research Division"),
+    ]
+    description = f"{theme.get('title','')} {room.get('setting_name','')} {theme.get('setting','')}"
+    profile, badge = next(((style, tag) for text in (request, description)
+                           for pattern, style, tag in profiles if re.search(pattern, text, re.I)),
+                          ("dust stars steel_grating bolted_frame balanced pixel_arcade industrial_steel", "Survey Division"))
+    weather, particles, material, trim, layout, font, art = profile.split()
+    palette = theme.get("palette") or {}
+    if not isinstance(palette,dict) or not isinstance(theme.get("featureLabels",{}),dict) or not isinstance(config.get("mechanics",{}),dict):
+        return
+    accent = room.get("accent_color", "#8acbc8")
+    environment = dict(weather=dict(type=weather, intensity=.45, angle=12, tint=accent),
+                       particles=dict(type=particles, density=.35, tint=accent),
+                       platform=dict(material=room["floor_style"] if isinstance(room.get("floor_style"),dict) else material, borderStyle=trim, sceneryLayout=layout,
+                                     deckFill=room.get("primary_color", "#27383d"), gridLine=room.get("secondary_color", "#405357"),
+                                     borderAccent=accent, bayLeftAccent=palette.get("team0", "#77d6cc"),
+                                     bayRightAccent=palette.get("team1", "#f2ab79")))
+    words = re.findall(r"[\w’-]+", str(theme.get("title") or badge))[:4]
+    if not words:
+        words = badge.split()
+    if len(words) == 1:
+        words.append("Survey")
+    rule = config.get("mechanics",{}).get("class_rule")
+    core = rule.get("feature") if isinstance(rule,dict) else None
+    title = dict(catchyTitle=" ".join(words).upper(), divisionBadge=badge.upper(),
+                 tagline=f"Track the {theme.get('featureLabels',{}).get(core,'reliable signal')} and train your classifier to see through the disguise.",
+                 fontStyle=font, artStyle=art)
+    for key, defaults in (("environment", environment), ("titleScreen", title)):
+        inherited = (previous or {}).get(key, {})
+        supplied = config.get(key, {})
+        if key == "environment" and isinstance(supplied,dict):
+            for layer in ("weather","particles"):
+                if isinstance(supplied.get(layer),str):
+                    supplied[layer] = {"type":supplied[layer]}
+                elif isinstance(supplied.get(layer),dict) and "name" in supplied[layer]:
+                    supplied[layer].setdefault("type", supplied[layer].pop("name"))
+        config[key] = merge(merge(defaults, inherited), supplied) if isinstance(supplied, dict) else supplied
 
 
 def environment_name(name):
@@ -528,7 +637,7 @@ def unpack_levels(response, level):
         data = parse_config(response)
     except ValueError:
         # A token cap may cut off a later tier after the anchor object has closed.
-        match = re.match(r'^\s*(?:```json\s*)?\{\s*"level' + str(level) + r'"\s*:\s*', response)
+        match = re.match(r'^\s*(?:```json\s*)?\{\s*"level' + str(level) + r'"\s*:\s*', response or "")
         if not match:
             raise
         levels = {}
@@ -563,6 +672,12 @@ def unpack_levels(response, level):
             entry = levels.get(key, levels.get(str(number)))
             if entry is not None:
                 data.setdefault(key, entry)
+    for key in ("environment", "titleScreen"):
+        if isinstance(data.get(key), dict):
+            for number in (1, 2, 3):
+                entry = data.get(f"level{number}")
+                if isinstance(entry, dict):
+                    entry[key] = merge(data[key], entry.get(key, {}))
     return data
 
 
@@ -620,23 +735,43 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     if bundle is not None and not previous:
         messages[0]["content"] = "Return one compact JSON level bundle. Apply the requested setting and respect the supplied schema for all overridden fields."
         messages.append({"role": "user", "content": f"Produce all tiers in ONE JSON object. Write level{level} first, "
-                         'then the other level keys (level1, level2, level3). Each value may patch theme and top-level world_physics and tilemap. For physical edits return only world_physics patches. '
+                         'then the other level keys (level1, level2, level3). Each value may patch theme, world_physics and tilemap. Use visual_keys for shared classifier presentation. For physical edits return only world_physics patches. '
                          'Include only changed fields. Tier-specific mechanics and missing theme fields '
                          'come from validated templates. Use distinct environments. Stay under 1400 tokens.'})
     fallback_reason = None
     failures = []
     api_errors = []
     output = None
-    for attempt in range(1, 4):
-        if progress:
+    recoverable = False
+    for attempt in range(1, 5):
+        local = attempt == 4
+        if local and not recoverable:
+            break
+        if progress and not local:
             progress(f"Level {level} · generating config · attempt {attempt}/3")
-        print(f"Level {level}, attempt {attempt}/3: waiting for {client.model}", flush=True)
+        if not local:
+            print(f"Level {level}, attempt {attempt}/3: waiting for {client.model}", flush=True)
+        recoverable = False
+        entry = None
         try:
             physics_patch = None
-            if bundle is None:
+            if local:
+                if progress:
+                    progress(f"Level {level} · building local fallback")
+                fallback_reason = "No usable gateway completion after three attempts. Using the local tier template."
+                config = copy.deepcopy(revision) if revision else tier_base(source, level, previous_config, used_layouts)
+                if not previous_config and not revision:
+                    config["theme"]["title"] = theme.strip() or config["theme"]["title"]
+                    config["theme"]["subtitle"] = topic.strip()
+                    config["theme"]["environment"]["setting_name"] = (theme.strip() or topic.strip())[:100] or config["theme"]["environment"]["setting_name"]
+                    config.pop("world_physics", None)
+                    config.pop("tilemap", None)
+                if bundle is not None and instruction:
+                    bundle["_cue_request"] = instruction
+            elif bundle is None:
                 response = client.complete(messages)
-                messages.append({"role": "assistant", "content": response})
                 config = unpack_levels(response, level)
+                messages.append({"role": "assistant", "content": response})
                 if f"level{level}" in config:
                     envelope = config
                     config = envelope[f"level{level}"]
@@ -646,8 +781,8 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 if not previous:
                     try:
                         response = client.complete(messages)
-                        messages.append({"role":"assistant", "content":response})
                         levels = unpack_levels(response, level)
+                        messages.append({"role":"assistant", "content":response})
                         bundle.clear()
                         bundle.update(levels if key in levels else {key:levels})
                     except GatewayTimeout as exc:
@@ -657,7 +792,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 shared_ui = ui_fields(bundle)
                 lift_ui(entry, shared_ui)
                 if (isinstance(entry, dict) and entry.get("archetype") in (archetype, exemplar["archetype"])
-                        and set(entry) <= {"archetype", "theme", "world_physics", "tilemap"}):
+                        and set(entry) <= {"archetype", "theme", "world_physics", "tilemap","environment","titleScreen"}):
                     entry.pop("archetype")
                 if revision and isinstance(entry, dict) and isinstance(entry.get("world_physics"), dict):
                     # Providers sometimes echo the complete original along with a physical edit.
@@ -672,12 +807,12 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 if previous and (not isinstance(entry, dict) or attempt > 1):
                     fallback_reason = "Derived from the accepted level using the local tier template."
                     config = base
-                elif (isinstance(entry, dict) and entry and set(entry) <= {"theme","world_physics","tilemap"}
+                elif (isinstance(entry, dict) and entry and set(entry) <= {"theme","world_physics","tilemap","environment","titleScreen"}
                       and isinstance(entry.get("theme", {}), dict)):
                     physics_patch = entry.get("world_physics")
                     if not previous and (physics_patch is not None or "tilemap" in entry):
                         bundle["_shared_physics"] = physics_patch or {}
-                        bundle["_physics_revision"] = bool(revision and not entry.get("theme"))
+                        bundle["_physics_revision"] = bool(revision and not any(entry.get(k) for k in ('theme','environment','titleScreen')))
                     base["tilemap"] = entry.get("tilemap")
                     base.pop("world_physics", None)
                     if not previous and not revision:
@@ -688,14 +823,19 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                             base["theme"][field].update(value)
                         else:
                             base["theme"][field] = value
+                    for field in ("environment","titleScreen"):
+                        if field in entry:
+                            base[field] = merge(base.get(field, {}), entry[field])
                     config = base
                 else:
                     config = entry
         except APIError as exc:
             category, error = "api_error", str(exc)
             api_errors.append({"attempt": attempt, "message": error})
+            recoverable = isinstance(exc, (UnusableCompletion, GatewayTimeout))
         except ValueError as exc:
             category, error = "json_parse_error", str(exc)
+            recoverable = True
         else:
             normalize_required_ui(config, exemplar, archetype)
             retained_level = None
@@ -746,6 +886,10 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     annotate_classifier_cases(config["mechanics"])
                 except (KeyError, TypeError, AttributeError, IndexError):
                     pass  # The validator reports incomplete structures in the repair prompt.
+            if archetype == "Feature-Classifier" and isinstance(config, dict):
+                if isinstance(config.get("theme"), dict):
+                    compact_classifier_cues(config["theme"])
+                classifier_presentation(config, instruction or f"{topic} {theme}", previous_config)
             rows = config.pop("tilemap",None) if isinstance(config,dict) else None
             error = validate(source, archetype, config, level)
             if error is None:
@@ -770,7 +914,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                 stem = previous.stem.rsplit("_L", 1)[0] if previous else f"{slug}-{run_id}"
                 output = (output_dir or root / "generated" / archetype) / f"{stem}_L{level}.json"
                 output.parent.mkdir(parents=True, exist_ok=True)
-                meta = dict(common, schema_version="v1", attempts=attempt, run_id=run_id)
+                meta = dict(common, schema_version="v1", attempts=min(attempt, 3), run_id=run_id)
                 if fallback_reason:
                     meta["fallback_reason"] = fallback_reason
                     print(fallback_reason, flush=True)
@@ -813,11 +957,16 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
             category = "schema_validation_error"
         failures.append(category)
         print(f"Attempt {attempt}: {category}: {error}", file=sys.stderr)
+        if recoverable and attempt < 3:
+            sleep(1.5 * attempt)
         messages.append({"role": "user", "content": f"{category}:\n{error}\nReturn the complete corrected JSON object."})
+    attempt = min(attempt, 3)
     record = dict(common, run_id=run_id, is_regeneration=previous is not None, attempts=attempt,
                   passed=output is not None, first_pass_success=output is not None and attempt == 1,
                   failure_categories=failures, latency_ms=round((monotonic()-started)*1000))
     if output:
+        if fallback_reason:
+            record["fallback_reason"] = fallback_reason
         record["asset_providers"] = providers
         record["provider_errors"] = provider_errors
     if sprite_error is not None:

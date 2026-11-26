@@ -5,6 +5,11 @@ from http.client import HTTPException
 import io
 import json
 import logging
+import hashlib
+import re
+import shutil
+from tempfile import TemporaryDirectory
+from threading import Lock
 import os
 from pathlib import Path
 from time import sleep
@@ -20,12 +25,32 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 logger = logging.getLogger(__name__)
 # ImageClient instances are per level, but provider credit belongs to the account.
 _exhausted_retro_keys = set()
+_scenery_lock = Lock()
 
 
 class ImageGenerationError(Exception):
     def __init__(self, message, status=None):
         super().__init__(message)
         self.status = status
+
+
+def visual_name(value):
+    return value["name"] if isinstance(value, dict) else value
+
+
+def scenery_items(config):
+    world = config.get("world_physics", {})
+    for item in (*world.get("obstacles", []), *world.get("structures", {}).values(), *world.get("hazards", []),
+                 *config["theme"].get("environment", {}).get("props", [])):
+        if isinstance(item, dict):
+            yield item
+
+
+def classifier_backdrop(location, env, title):
+    return (f"Wide 16-bit pixel art panorama of {location} in {title}. Atmospheric horizon and perimeter scenery: "
+            f"{', '.join(map(visual_name,env['props']))}. Palette {env['primary_color']} {env['secondary_color']} {env['accent_color']}. "
+            "Frame the room shell with architecture, windows or vegetation along the top, left and right edges. Keep the horizon visible. Reserve a continuous empty lower-middle floor, about 63% of the image width and 55% of its height, for a recessed arena platform composited at runtime. "
+            "No central furniture, platform, characters, interface or text.")
 
 
 def clean_sprite_background(image):
@@ -110,6 +135,28 @@ class ImageClient:
         self.provider = (os.getenv("IMAGE_PROVIDER") or "auto").strip().lower()
         self.providers = {}
         self.provider_errors = []
+
+    def scenery(self, directory, theme, item):
+        def slug(text):
+            return re.sub("[^a-z0-9]+", "-", text.lower()).strip("-")[:48]
+        name = item["name"]
+        digest = hashlib.sha256(json.dumps([theme,name]).encode()).hexdigest()[:12]
+        stem = f"{slug(theme)}-{slug(name)}-{digest}"
+        relative = Path("assets") / f"{stem}_prop.png"
+        cache = REPO_ROOT / "generated" / ".scenery-cache"
+        cached = cache / relative.name
+        prompt = (f"Isolated 16-bit low top-down isometric pixel art of {name}. "
+                  f"{item.get('visualPrompt', name)}. Role: {item.get('role', 'scenery')}. Setting: {theme}. Palette: "
+                  f"{item.get('primaryColor','')} {item.get('accentColor','')}. Transparent background, no text.")
+        with _scenery_lock:
+            cache.mkdir(parents=True, exist_ok=True)
+            if not cached.exists():
+                with TemporaryDirectory(dir=cache) as scratch:
+                    asset = self._generate_with("pixellab", prompt, Path(scratch), stem, "prop")
+                    (Path(scratch)/asset).replace(cached)
+            (directory/relative.parent).mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(cached,directory/relative)
+        return relative.as_posix()
 
     def animate(self, directory, asset, description):
         """Build a four-frame horizontal sheet from PixelLab's 64px text animation."""

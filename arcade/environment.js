@@ -264,7 +264,7 @@ const ArcadeEnvironment = (() => {
       }
     }
     const props=e.props||[];
-    props.filter(id=>!station||!['crates','viewport','consoles','airlock'].includes(id))
+    props.filter(id=>typeof id==='string'&&(!station||!['crates','viewport','consoles','airlock'].includes(id)))
       .forEach((id,i)=>prop(ctx,id,22+(i%2)*276,46+Math.floor(i/2)*32,accent));
     ctx.restore();
   }

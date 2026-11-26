@@ -1,7 +1,42 @@
 // Fit a decision stump to the player's labels, then test it on four field cases.
 const makeFieldTest = typeof module === 'undefined' ? createFieldTest : require('../../field_cases').createFieldTest;
+function displayTheme(config){
+  const theme=GameLogic.themeFor(config);
+  const featureLabels=Object.fromEntries(Object.entries(theme.featureLabels).map(([key,value])=>{
+    const phrase=value.replace(/\s*\([^()]*\)/g,'').split(/[,;:.!?()—–]|\s+-\s+|\s+(?:which|that|because|while|whereas|when|with)\b/i)[0];
+    return [key,(phrase.trim()||value).split(/\s+/).slice(0,3).join(' ')];
+  }));
+  return {...theme,featureLabels};
+}
+// Older saved levels describe their scenery and class identity inside theme.
+function classifierPresentation(config){
+  const theme=displayTheme(config),room=theme.environment||{},palette=theme.palette||{};
+  const profiles=[
+    [/noir|detective|precinct|speakeasy/i,'rain','sun_rays','cobblestone','brass_trim','noir_serif','noir_brass','Investigations Bureau'],
+    [/ocean|reef|abyssal|underwater|jellyfish|marine/i,'bubbles','spores','steel_grating','neon_bevel','cyber_mono','abyssal_neon','Marine Research'],
+    [/alpine|snow|arctic|summit|glacier/i,'snow','clouds','stone_slate','stone_curb','field_stencil','alpine_console','Summit Survey'],
+    [/forest|orchard|garden|botanical/i,'dust','spores','wood_deck','wood_trim','storybook_bold','botanical_parchment','Field Research']
+  ];
+  const clues=[theme.title,(theme.options||[]).join(' '),theme.setting,theme.subtitle,room.setting_name,room.layout];
+  let match;
+  for(const clue of clues){
+    match=profiles.find(([pattern])=>pattern.test(clue||''));
+    if(match)break;
+  }
+  const [,weather,particles,material,borderStyle,fontStyle,artStyle,badge]=match||
+    [null,'dust','neon_glints','lab_tile','bolted_frame','pixel_arcade','industrial_steel','Research Division'];
+  const env=config.environment||{},tint=room.accent_color||theme.accent||'#8acbc8';
+  return {...config,theme,environment:{...env,
+    weather:{type:weather,intensity:.45,angle:12,tint,...env.weather},
+    particles:{type:particles,density:.35,tint,...env.particles},
+    platform:{material:typeof room.floor_style==='object'?room.floor_style:material,borderStyle,sceneryLayout:'balanced',deckFill:room.primary_color||palette.floor||'#27383d',
+      gridLine:room.secondary_color||palette.stripe||'#405357',borderAccent:tint,
+      bayLeftAccent:palette.team0||'#77d6cc',bayRightAccent:palette.team1||'#f2ab79',...env.platform}},
+    titleScreen:{catchyTitle:theme.title||'Classification Lab',divisionBadge:badge.toUpperCase(),
+      tagline:theme.subtitle||theme.hint||'Find the reliable signal and train your classifier.',fontStyle,artStyle,...config.titleScreen}};
+}
 function createRound(config) {
-  const m=config.mechanics,t=GameLogic.themeFor(config);
+  const m=config.mechanics,t=displayTheme(config);
   const pool = GameLogic.makePool(m), rows = [], labels=t.featureLabels;
   const shortcut=m.features.find(f=>f.role==='spurious'), core=m.class_rule.feature;
   const counts=[0,0], cases=m.curveballs.map(c=>c.item);
