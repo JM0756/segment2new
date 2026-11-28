@@ -366,7 +366,7 @@ def operation(endpoint, data):
     meta = json.loads(path.with_suffix('.meta.json').read_text())
     lessons = {
         'Feature-Classifier':'Learn to distinguish a reliable feature from a misleading correlation.',
-        'Signal-Sorter':'Improve training data by filtering out noisy samples.',
+        'Signal-Sorter':'Route low and high carriers to their matching cores and filter static to protect signal quality.',
         'Alert-Dial':'Adjust the threshold to balance false alarms and missed incidents.',
         'Claim-Inspector':'Check each claim against the evidence before choosing a verdict.',
         'Neighborhood-Vote':'Predict a label from the nearest neighbors.',

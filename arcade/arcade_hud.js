@@ -11,6 +11,7 @@ if(params.has('progress')){
 }
 const lastLevel=Number(params.get('lastLevel')||3);
 const tutorialMode=params.get('mode')==='tutorial';
+const priorWaveScore=Math.max(0,Number.parseInt(params.get('priorScore'),10)||0);
 let reported=false, passed=false, guideStep=-1, lines=[], practiceActors=[];
 let escortMode,lastChoice,cohort,world,lowProfile,hover=null;
 const entryPaths=new Map(),held=new Set();
@@ -20,6 +21,7 @@ const floorTop=()=>deck?.y??worldHeight*.43, floorHeight=()=>deck?.height??world
 let pilot=null,frameTime=0,track=[],lastMark=0;
 const movement={a:[-1,0],d:[1,0],w:[0,-1],s:[0,1],arrowleft:[-1,0],arrowright:[1,0],arrowup:[0,-1],arrowdown:[0,1]};
 function takeControl(){
+  if(streamMode)return guideStep<0&&!round.state.done;
   if(guideStep>2 || guideStep<0&&(view.field||view.done) || !world.grid)return false;
   if(!pilot){
     const hit=hits.find(h=>!h.station),p=hit?{x:hit.x/mapWidth(),y:(hit.y+11)/floorHeight()}:world.structures.entry;
@@ -37,7 +39,7 @@ function signs(){
   });
 }
 function inspectHere(){
-  scanTime=performance.now();
+  scanTime=gameNow();
   if(guideStep>=0)guideInput('inspect');
   else {
     if(round.inspect)action(()=>round.inspect(),true);
@@ -51,7 +53,7 @@ function legacyInteract(space=false){
   const pos=pilot.pos(),target=WorldEngine.nearby(pos,signs());
   if(space && guideStep<0 && view.readyToSubmit && (!target||lastChoice===target.index)){submit();return;}
   if(target){
-    targetPulse[target.index%2]=performance.now();
+    targetPulse[target.index%2]=gameNow();
     if(guideStep>=0){guideInput('classify');held.clear();}
     else choose(target.index);
   }else if(!space && WorldEngine.nearby(pos,[world.structures.checkpoint,...inspectablePoints()]))inspectHere();
@@ -72,13 +74,14 @@ function interactionTarget(){
   return null;
 }
 function interactHere(space=false){
+  if(streamMode)return pipelineInteract();
   if(!escortMode)return legacyInteract(space);
   if(guideStep>=3){if(space)submit();return;}
   if(guideStep<0 && (view.done||view.field)){if(space)submit();return;}
   const target=interactionTarget();
   if(target?.type==='pad'){
     const alreadyAttached=pilot.tethered;
-    pilot.inspect();scanTime=performance.now();
+    pilot.inspect();scanTime=gameNow();
     if(guideStep>=0)guideInput('inspect');
     else if(!alreadyAttached && round.inspect)action(()=>round.inspect(),true);
     render();
@@ -87,13 +90,15 @@ function interactHere(space=false){
   }else if(target?.type==='bay' && pilot.tethered){
     const bay=target.point;
     const actor=(guideStep>=0?practiceActors:view.actors).find(a=>!a.station);
-    handoff={actor,from:pilot.specimen(),to:bay,start:performance.now()};
+    handoff={actor,from:pilot.specimen(),to:bay,start:gameNow()};
     pilot.release();
     targetPulse[bay.index%2]=handoff.start;
     if(guideStep>=0){guideInput('classify');held.clear();}
     else choose(bay.index);
   }else if(space && guideStep<0 && view.readyToSubmit)submit();
 }
+let pausedAt=null,pausedDuration=0,streamMode=false;
+const gameNow=()=>(pausedAt??performance.now())-pausedDuration;
 let flight=null,auditOpened=false;
 let handoff=null,objective='';
 let scanTime=-Infinity;
@@ -107,19 +112,14 @@ function button(label,fn) {
   const b=document.createElement('button');b.textContent=label;b.onclick=fn;return b;
 }
 let audio=null,soundEnabled=false;
-const soundToggle=button('SOUND OFF',async()=>{
+async function toggleSfx(){
   const Audio=window.AudioContext||window.webkitAudioContext;
   if(!Audio)return;
   soundEnabled=!soundEnabled;
   try{
     if(soundEnabled){audio??=new Audio();await audio.resume();chime(480);}
   }catch{soundEnabled=false;}
-  soundToggle.textContent=soundEnabled?'SOUND ON':'SOUND OFF';
-  soundToggle.setAttribute('aria-pressed',String(soundEnabled));
-});
-soundToggle.className='sound-toggle';
-soundToggle.disabled=!(window.AudioContext||window.webkitAudioContext);
-soundToggle.setAttribute('aria-pressed','false');
+}
 function chime(hz){
   if(!soundEnabled||audio?.state!=='running')return;
   const osc=audio.createOscillator(),gain=audio.createGain(),now=audio.currentTime;
@@ -130,7 +130,47 @@ function chime(hz){
 }
 const cleared=document.createElement('section');
 cleared.className='stage-cleared';cleared.hidden=true;cleared.setAttribute('aria-label','Stage results');
-document.querySelector('.playfield').append(cleared,soundToggle);
+document.querySelector('.playfield').append(cleared);
+const pauseMenu=document.createElement('dialog');
+pauseMenu.className='pause-menu';pauseMenu.setAttribute('aria-label','Stage menu');
+let music=null,musicTimer=null;
+function stopMusic(){clearInterval(musicTimer);musicTimer=null;if(music){music.stop();music=null;}}
+async function toggleMusic(){
+  if(music){stopMusic();return;}
+  const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;
+  audio??=new Audio();await audio.resume();
+  const osc=audio.createOscillator(),gain=audio.createGain();gain.gain.value=.012;
+  const melody=[196,247,294,220,196,261,330,247];let i=0;
+  osc.frequency.value=melody[i];osc.connect(gain);gain.connect(audio.destination);
+  music=osc;osc.start();musicTimer=setInterval(()=>osc.frequency.setTargetAtTime(melody[++i%8],audio.currentTime,.08),620);
+  osc.onended=()=>{osc.disconnect();gain.disconnect();};
+}
+function resumeGame(){
+  if(pausedAt===null)return;
+  pausedDuration+=performance.now()-pausedAt;pausedAt=null;pauseMenu.close();canvas.focus();
+}
+async function quitToMenu(){
+  resumeGame();await start(config,configPath);
+  showStartScreen(config.titleScreen||{catchyTitle:config.theme.title,tagline:config.theme.hint,divisionBadge:'Arcade',fontStyle:'pixel_arcade',artStyle:'industrial_steel'});
+}
+function pauseGame(){
+  if(!round||!startScreen.hidden||$('modelAudit')?.open)return;
+  if(pausedAt!==null){resumeGame();return;}
+  held.clear();pausedAt=performance.now();
+  const title=document.createElement('h2'),tip=document.createElement('p');
+  title.textContent=config.theme.title+' · Stage '+(tier||1);
+  tip.textContent=streamMode?lines.at(-1):config.theme.hint;
+  const sfx=button('SFX: '+(soundEnabled?'ON':'OFF'),async()=>{await toggleSfx();sfx.textContent='SFX: '+(soundEnabled?'ON':'OFF');});
+  const song=button('MUSIC: '+(music?'ON':'OFF'),async()=>{await toggleMusic();song.textContent='MUSIC: '+(music?'ON':'OFF');});
+  sfx.disabled=song.disabled=!(window.AudioContext||window.webkitAudioContext);
+  pauseMenu.replaceChildren();pauseMenu.append(title,tip,button('RESUME',resumeGame),sfx,song,
+    button('TRY LEVEL AGAIN',()=>{resumeGame();start(config,configPath);}),
+    button('HOW TO PLAY',()=>{resumeGame();showGuide();}),button('QUIT TO MENU',quitToMenu));
+  pauseMenu.showModal();
+}
+pauseMenu.oncancel=e=>{e.preventDefault();resumeGame();};
+const menuButton=button('≡ MENU',pauseGame);menuButton.className='menu-toggle';
+document.querySelector('.playfield').append(menuButton,pauseMenu);
 function renderClear(){
   cleared.hidden=!passed||!view.done||guideStep>=0||Boolean(flight);
   if(cleared.hidden)return;
@@ -154,7 +194,7 @@ let waves=[];
 function action(fn, inspection=false) {
   if(!round)return;
   const last=view.target;
-  const outcome=fn();chime(outcome?.correct===false?180:520);pulse=performance.now();
+  const outcome=fn();chime(outcome?.correct===false?180:520);pulse=gameNow();
   if(inspection)scanTime=pulse;
   if(outcome?.destination!==undefined)scanTime=-Infinity;
   if(outcome?.destination!==undefined){
@@ -181,7 +221,7 @@ function action(fn, inspection=false) {
 }
 function report(type,won,accuracy){
   if(params.has('mode'))parent.postMessage({type,archetype:params.get('game'),level:tier,accuracy,
-    score:view.points,stars:tutorialMode?3:view.stars??(accuracy>=75?3:accuracy>=60?2:1),passed:won,run:params.get('run')},location.origin);
+    score:view.points,totalScore:streamMode?priorWaveScore+(view.points||0):undefined,stars:tutorialMode?3:view.stars??(accuracy>=75?3:accuracy>=60?2:1),passed:won,run:params.get('run')},location.origin);
 }
 function guideInput(key){
   const next=ArcadeNarrator.next(guideStep,key);
@@ -248,6 +288,7 @@ function selectLevel(next){
   const url=new URL(location.href);
   const path=/_L[123]\.json$/i.test(configPath)?configPath.replace(/_L[123]\.json$/i,'_L'+next+'.json'):
     configPath.replace(/[^/]*$/,next===1?'default.json':'level'+next+'.json');
+  url.searchParams.delete('priorScore');
   url.searchParams.set('config',path);
   url.searchParams.set('level',next);
   url.searchParams.set('started','1');url.searchParams.delete('next');
@@ -265,7 +306,7 @@ let enteredTitle=null;
 function setStartVisible(visible){
   startScreen.hidden=!visible;
   document.querySelector('.console').inert=visible;
-  $('levelHub').inert=visible;
+  if($('levelHub'))$('levelHub').inert=visible;
 }
 function showStartScreen(title){
   setStartVisible(true);
@@ -374,13 +415,16 @@ function advance(){
   const url=new URL(location.href),next=tier+1;
   const generated=configPath.match(/^(.*)_L[123]\.json$/);
   url.searchParams.set('config',params.get('next')||(generated?generated[1]+'_L'+next+'.json':'level'+next+'.json'));
-  url.searchParams.set('level',next);url.searchParams.set('started','1');url.searchParams.delete('next');location.assign(url);
+  url.searchParams.set('level',next);url.searchParams.set('started','1');url.searchParams.delete('next');
+  if(streamMode)url.searchParams.set('priorScore',priorWaveScore+round.state.score);
+  location.assign(url);
 }
 function finishGuide(){
+  if(streamMode&&!tutorialMode){ArcadeTutorial.finish(gameId);guideStep=-1;render();return;}
   ArcadeTutorial.finish(gameId);
   if(tutorialMode){passed=true;report('ARCADE_PROGRESS',true,100);report('ARCADE_NEXT',true,100);return;}
   guideStep=-1;scanTime=-Infinity;pilot=savedPilot||(escortMode?WorldEngine.controller(world):null);savedPilot=null;handoff=null;held.clear();hits=[];track=[];entryPaths.clear();
-  feedback=null;arrival=performance.now();spawnUntil=pilot||view.field?-Infinity:arrival+500;render();
+  feedback=null;arrival=gameNow();spawnUntil=pilot||view.field?-Infinity:arrival+500;render();
 }
 function consoleReadout(guided){
   const m=config.mechanics,t=config.theme;
@@ -436,6 +480,7 @@ function consoleReadout(guided){
   $('detail').textContent=guided?'':view.detail||'';
 }
 function render() {
+  if(streamMode){renderPipeline();return;}
   view=round.view();
   const guided=guideStep>=0;
   $('title').textContent=config.theme.title;
@@ -512,13 +557,22 @@ function resizeCanvas(){
   // One transform scales sprites, text, particles and pointer hit boxes together.
   worldWidth=logicalWidth/layout.uiScale;
   worldHeight=logicalHeight/layout.uiScale;
-  const platform=escortMode&&config.environment?.platform;
+  const platform=(streamMode||escortMode)&&config.environment?.platform;
   deck=platform?ArcadeHUD.deckBounds(worldWidth,worldHeight,platform):null;
   if(deck){
     const dw=Math.ceil(deck.width)+12,dh=Math.ceil(deck.height)+16;
     if(!deckTexture||deckTexture.width!==dw||deckTexture.height!==dh){
       deckTexture=document.createElement('canvas');deckTexture.width=dw;deckTexture.height=dh;
-      ArcadeHUD.drawDeck(deckTexture.getContext('2d'),dw,dh,platform);
+      const painter=deckTexture.getContext('2d');
+      ArcadeHUD.drawDeck(painter,dw,dh,platform);
+      if(streamMode){
+        const corner=Math.min(14,dw/8,dh/8);
+        painter.save();painter.globalCompositeOperation='destination-in';
+        painter.fillStyle='#fff';painter.beginPath();painter.moveTo(corner,0);
+        for(const [x,y] of [[dw-corner,0],[dw,corner],[dw,dh-corner],[dw-corner,dh],
+          [corner,dh],[0,dh-corner],[0,corner]])painter.lineTo(x,y);
+        painter.fill();painter.restore();
+      }
     }
   }
   ctx.setTransform(width/worldWidth,0,0,height/worldHeight,0,0);
@@ -593,7 +647,7 @@ function rimLight(){
   ctx.shadowColor=accent;ctx.shadowBlur=2;ctx.shadowOffsetX=-1;ctx.shadowOffsetY=-1;
 }
 function paint(now){
-  requestAnimationFrame(paint);if(!round)return;
+  requestAnimationFrame(paint);if(!round||pausedAt!==null)return;now-=pausedDuration;
   advanceFlight(now-frameTime);
   resizeCanvas();
   const w=worldWidth,h=floorHeight();
@@ -613,10 +667,11 @@ function paint(now){
     if(typeof prop==='object')ArcadeHUD.drawScenery(ctx,prop,w*(i%2?.92:.08),worldHeight*(.3+.10*Math.floor(i/2)),sceneryImages.get(prop.sprite),accent);
   });
   if(deck)ctx.drawImage(deckTexture,deck.x-5,deck.y-5);
-  if(escortMode&&config.environment)ArcadeHUD.drawClimate(ctx,w,worldHeight,now,config.environment,deck);
+  if((streamMode||escortMode)&&config.environment)ArcadeHUD.drawClimate(ctx,w,worldHeight,now,config.environment,deck);
   else ArcadeHUD.drawAtmosphere(ctx,w,worldHeight,now,config.theme);
   for(const wave of waves)ArcadeHUD.drawWave(wave.ctx,wave.jagged,now);
   ctx.translate(deck?.x||0,floorTop());
+  if(streamMode){pipelineFrame(Math.max(0,Math.min(.1,(now-frameTime)/1000)),now);frameTime=now;ctx.restore();return;}
   let driven=null;
   if(pilot && (guideStep>=0 || !view.field && !view.done)){
     let dx=0,dy=0;
@@ -793,6 +848,7 @@ function paint(now){
 async function start(data,path){
   if(data.archetype==='orbit')data={...data,archetype:'classifier'};
   if(data.archetype==='classifier')data=classifierPresentation(data);
+  if(data.archetype==='sorter')data=sorterPresentation(data);
   const id=++generation;
   const physicalArt=data.world_physics||{};
   const props=data.theme.environment?.props||[];
@@ -810,9 +866,13 @@ async function start(data,path){
   }
   if(id!==generation)return;
   sceneryImages=new Map(art);
-  flight=null;auditOpened=false;escortMode=data.archetype==='classifier';lastChoice=null;
+  resumeGame();streamMode=data.archetype==='sorter';flight=null;auditOpened=false;escortMode=data.archetype==='classifier';lastChoice=null;
   lowProfile=Boolean(background?.naturalWidth);
-  world=WorldEngine.project(data.tilemap||WorldEngine.legacyMap(physical,tier),physical,lowProfile,escortMode?tier:null);pilot=escortMode?WorldEngine.controller(world):null;handoff=null;held.clear();track=[];frameTime=performance.now();hover=null;entryPaths.clear();
+  world=WorldEngine.project(data.tilemap||WorldEngine.legacyMap(physical,tier),physical,lowProfile,
+    streamMode||escortMode?tier:null,streamMode&&tier>=2?2:undefined);
+  if(streamMode)world.hazards=world.hazards.slice(0,1);
+  pilot=(escortMode||streamMode)?WorldEngine.controller(world):null;
+  handoff=null;held.clear();track=[];frameTime=gameNow();hover=null;entryPaths.clear();
   scenery=document.createElement('canvas');scenery.width=background?.naturalWidth||560;scenery.height=background?.naturalHeight||245;
   const painter=scenery.getContext('2d');
   if(background?.naturalWidth)ArcadeEnvironment.backdrop(painter,scenery.width,scenery.height,background);
@@ -831,27 +891,44 @@ async function start(data,path){
   }
   accent=data.theme.environment?.accent_color||data.theme.accent||'#84dacc';
   deckTexture=null;land=null;
-  if(!lowProfile&&!(escortMode&&data.environment?.platform)){
+  if(!lowProfile&&!((streamMode||escortMode)&&data.environment?.platform)){
     land=document.createElement('canvas');land.width=560;land.height=300;
     ArcadeEnvironment.ground(land.getContext('2d'),land.width,land.height,data.theme);
   }
   scanTime=-Infinity;targetPulse.fill(-Infinity);savedPilot=null;
-  reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort(world);round=withFieldTest(createRound(data));arrival=performance.now();
-  lines=ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data).map(a=>({...a,station:true}));
+  reported=false;passed=false;feedback=null;hits=[];config=data;configPath=path;images=loaded;cohort=ArcadeHUD.createCohort(world);round=streamMode?createRound(data,tier):withFieldTest(createRound(data));arrival=gameNow();
+  lines=streamMode?[]:ArcadeNarrator.lines(data);practiceActors=ArcadeNarrator.actors(data).map(a=>({...a,station:true}));
   practiceActors.push({...practiceActors[0],station:false,slot:2,art:0});guideStep=ArcadeTutorial.has(gameId)||params.get('transition')==='1'?-1:0;spawnUntil=guideStep<0?arrival+500:-Infinity;
-  $('sources').replaceChildren();render();emit('start');
-  if(escortMode&&data.titleScreen&&enteredTitle!==gameId&&!params.has('started')&&params.get('testSkipStart')!=='1'){
+  if(streamMode){
+    lines=[
+      'Move with WASD, arrows or click the deck. Read NEXT 1 and NEXT 2 before packets reach A.',
+      'Press E or Space beside a switch. Send low carriers to '+data.theme.coreALabel+', high carriers to '+data.theme.coreBLabel+' and jagged noise to '+data.theme.sinkLabel+'.',
+      'Turn FLT on for dirty carriers. Five heat in either core overloads the board.'
+    ];
+    if(tier>=2)lines.push('Route right from A to reach splitter C. Press E beside the vent to stop its push.');
+    if(tier>=3)lines.push('Engage INV when the carrier shifts to restore the original bands.');
+    if(!tutorialMode)guideStep=-1;
+  }
+  if(!streamMode)$('sources').replaceChildren();
+  render();emit('start');
+  if((escortMode||streamMode)&&data.titleScreen&&enteredTitle!==gameId&&!params.has('started')&&params.get('testSkipStart')!=='1'){
     showStartScreen(data.titleScreen);
   }else{
     startScreen.hidden=true;
-    if(escortMode)setStartVisible(false);
+    if(escortMode||streamMode)setStartVisible(false);
     if(tutorialMode && guideStep<0)finishGuide();
   }
 }
 function pointerDestination(e){
-  if(!round||!layout||!startScreen.hidden)return null;
+  if(!round||!layout||pausedAt!==null||!startScreen.hidden)return null;
   const b=canvas.getBoundingClientRect(),x=(e.clientX-b.left)*worldWidth/b.width-(deck?.x||0),y=(e.clientY-b.top)*worldHeight/b.height-floorTop();
   const coord={x:x/mapWidth(),y:y/floorHeight()};
+  if(streamMode){
+    if(coord.x<0||coord.y<0||coord.x>1||coord.y>1)return null;
+    const hardware=Object.keys(round.state.switches).map(id=>({x:round.state.points[id][0],y:round.state.points[id][1]}));
+    const target=WorldEngine.nearby(coord,[...hardware,...world.hazards]);
+    return {point:target||coord,action:target?'interact':''};
+  }
   const hit=hits.find(h=>Math.abs(x-h.x)<25 && y>=h.y-50 && y<=h.y+11);
   const sign=signs().filter(s=>Math.abs(x-s.x*mapWidth())<Math.max(25,mapWidth()*.055) && y-s.y*floorHeight()>-12 && y-s.y*floorHeight()<24)
     .sort((a,b)=>Math.abs(coord.y-a.y)-Math.abs(coord.y-b.y))[0];
@@ -873,18 +950,20 @@ canvas.onclick=e=>{
   if(dest&&takeControl()){canvas.focus();pilot.walkTo(dest.point,dest.action);}
 };
 function showGuide(){
+  if(streamMode){held.clear();guideStep=0;render();return;}
   if(guideStep<0)savedPilot=pilot;
   pilot=escortMode?WorldEngine.controller(world):null;handoff=null;feedback=null;held.clear();hits=[];track=[];guideStep=0;spawnUntil=-Infinity;emit('hint_shown');render();
 }
 $('help').onclick=showGuide;
-$('continue').onclick=submit;
+$('continue').onclick=()=>{if(streamMode&&guideStep<lines.length-1){guideStep++;render();}else if(streamMode)finishGuide();else submit();};
 $('skip').onclick=finishGuide;
-$('slider').oninput=e=>action(()=>round.tune(Number(e.target.value)));
+if($('slider'))$('slider').oninput=e=>action(()=>round.tune(Number(e.target.value)));
 window.addEventListener('keydown',e=>{
   if(!round||!startScreen.hidden)return;
-  if(e.target.matches('input'))return;
+  if(e.key==='Escape'&&!$('modelAudit')?.open){if(!e.repeat){e.preventDefault();pauseGame();}return;}
+  if(pausedAt!==null||e.target.matches('input'))return;
   if(e.key==='?'&&!e.repeat){showGuide();return;}
-  if($('modelAudit').open)return;
+  if($('modelAudit')?.open)return;
   const key=e.key.toLowerCase();
   if(movement[key]&&takeControl()){e.preventDefault();canvas.focus();held.add(key);return;}
   if(e.repeat){if(e.code==='Space')e.preventDefault();return;}
@@ -899,5 +978,5 @@ window.addEventListener('message',e=>{
   if(parent===window||e.source!==parent||e.data?.type!=='LOAD_CONFIG'||origin&&e.origin!==origin)return;
   origin=e.origin;gameId=e.data.gameId||gameId;start(e.data.config,configPath);
 });
-fetch(configPath).then(r=>r.json()).then(c=>{if(!generation)return start(c,configPath);}).catch(e=>{$('subject').textContent='Unable to load activity: '+e.message;});
+fetch(configPath).then(r=>r.json()).then(c=>{if(!generation)return start(c,configPath);}).catch(e=>{($('subject')||$('callout')).textContent='Unable to load activity: '+e.message;});
 requestAnimationFrame(paint);

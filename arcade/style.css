@@ -56,7 +56,7 @@ button:disabled{opacity:.55}
 #projection{display:block;margin:1em 0}
 #points{color:#9ee4cb}
 
-.sound-toggle{position:absolute;top:.6rem;right:.6rem;z-index:2;padding:.35em .7em;border-radius:2em;background:#142827db;font:600 .76rem monospace}
+.menu-toggle{position:absolute;top:.6rem;right:.6rem;z-index:2;padding:.35em .7em;border-radius:2em;background:#142827db;font:600 .76rem monospace}
 .trait-wave{display:inline-block;width:3em;height:.8em;margin-left:.5em;vertical-align:middle}
 .stage-cleared{position:absolute;inset:0;display:grid;align-content:safe center;justify-items:center;gap:.55em;overflow:auto;padding:1rem;background:#073b32ed;color:white;text-align:center}
 .stage-cleared h2{font-size:clamp(1.35rem,4vw,3rem);letter-spacing:.03em}
@@ -83,3 +83,8 @@ button:disabled{opacity:.55}
 .industrial_steel{--edge:#dfb884;--panel:#232b32ed}.industrial_steel .intro-panel{border-left-width:7px}
 @keyframes intro-arrive{from{opacity:0;transform:translateY(6px)}}
 @media(prefers-reduced-motion:reduce){.intro-panel{animation:none}}
+
+.pause-menu{width:min(23rem,90vw);padding:1.3rem;color:#edfff7;background:#122e30;border:2px solid #8bcabb;border-radius:.7em}
+.pause-menu::backdrop{background:#041819ba}
+.pause-menu button{margin:.5em .4em 0 0}
+.pause-menu p{margin:.6em 0}

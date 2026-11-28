@@ -41,8 +41,9 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
     inputs["constraints"].append("Provide tilemap as 12 strings of 20 tiles each. Use . for floor, # for props, ~ for terrain. "
         "Place one S entry, ? inspection pad and L/R gates at their world_physics coordinates. Connect all four by walking paths. "
         "Keep level 1 open, add obstacles at level 2 and terrain zones at level 3.")
-    if archetype == "Feature-Classifier":
+    if archetype in ("Feature-Classifier", "Signal-Sorter"):
         inputs["visual_keys"] = {"environment": {"weather": {}, "particles": {}, "platform": {}}, "titleScreen": {"catchyTitle": "", "divisionBadge": "", "tagline": "", "fontStyle": "", "artStyle": ""}}
+    if archetype == "Feature-Classifier":
         inputs["cue_example"] = {"name":"aura", "role":"spurious", "values":["crimson_mist","blue_glow"],
                                  "label":"Aura", "value_labels":{"crimson_mist":"Crimson mist","blue_glow":"Blue glow"}}
         inputs["constraints"].append("Use concise 1–3 word visual labels without parenthetical explanations or trailing clauses. Copy concrete visual traits and distractors from the request into the two class-ordered trueFeature.values and spuriousFeatures[0].values. Put additional distractors in noise value_labels. Keep the exact requested feature names and value labels in tutorial and subsequent tiers. Bind labels to the actual mechanics value IDs, including in theme-only patches. Give every cue a label and value_labels as in cue_example. These are normalized into theme.featureLabels.")
@@ -71,7 +72,7 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
             "Feature-Classifier":"Invert the shortcut correlation in mastery field cases while the true signal stays reliable.",
             "Alert-Dial":"Use closely spaced scores around the operating cutoff and asymmetric error costs.",
             "Claim-Inspector":"Require comparing multiple source records and distinguishing inference from explicit evidence.",
-            "Signal-Sorter":"Use a faster mixed wave of clean and noisy samples with one unambiguous cue."
+            "Signal-Sorter":"Mix both carrier bands at higher speed. Explain how INV restores the original frequency after the shift."
         }.get(archetype, "Require several decisions to solve the mastery round."))
     for name in ("config_schema", "default", "levels"):
         path = source / (name + ".json")
@@ -91,7 +92,7 @@ def build_messages(source, archetype, topic, theme, level, previous, generate_sp
             "value predicts class A and the second predicts class B. Set expected_model_failure "
             "to true exactly when that prediction disagrees with class_rule."
         ),
-        "Signal-Sorter": "Draw the two samples themselves in their theme-specific shapes. Use 0 for an intact, clean sample and 1 for a damaged, noisy sample. Label the two visually distinct samples in theme.options. Mix both classes in each wave. Set pace to 0.7, 1.4 or 2.1 by level.",
+        "Signal-Sorter": "Design a live conduit board. Samples 0/1 seed low/high carrier bands. Author theme.emitterLabel, coreALabel, coreBLabel, sinkLabel, lowLabel, highLabel, lowColor and highColor. Supply top-level environment and titleScreen. Teach live routing, filtering and interference. Set pace to 0.7, 1.4 or 2.1 by level.",
         "Alert-Dial": "A winning cutoff flags at least minHits records, all positive.",
         "Claim-Inspector": "Each claim has one answer index in theme.options. Match claims and answers in sequence.",
         "Neighborhood-Vote": "Select k closest positions to target. Classes align with positions and have visible classLabels.",

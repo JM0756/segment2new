@@ -53,7 +53,10 @@ def test_first_pass(tmp_path, game):
         fixture = ARCADE / game / "source" / f"{name}.json"
         assert prompt[name] == json.loads(fixture.read_text())
     saved = json.loads(path.read_text())
-    if game == "Feature-Classifier":
+    if game == "Signal-Sorter":
+        for key in "emitterLabel coreALabel coreBLabel sinkLabel lowLabel highLabel lowColor highColor".split():
+            assert saved["theme"].pop(key)
+    if game in ("Feature-Classifier","Signal-Sorter"):
         assert saved.pop("environment")["platform"]
         assert saved.pop("titleScreen")["catchyTitle"]
     assert saved == cfg
@@ -595,7 +598,7 @@ def test_signal_sorter_rejects_ambiguous_wave_and_wrong_tier_size():
         config = json.loads((source/(name+".json")).read_text())
         assert cli.validate(source,game,config,tier) is None
     config["mechanics"]["samples"] = [0]*9
-    assert "clean and noisy" in cli.validate(source,game,config,3)
+    assert "low and high" in cli.validate(source,game,config,3)
     config["mechanics"]["samples"] = [1,0,1]
     assert "9 entries" in cli.validate(source,game,config,3)
 
@@ -1196,3 +1199,17 @@ def test_open_scenery_assets_validate_and_reuse_pixellab_cache(tmp_path,monkeypa
         assets=[item["sprite"] for item in cli.scenery_items(level) if "sprite" in item]
         assert len(assets)==5 and all((directory/path).is_file() for path in assets)
     assert len(scenery)==5 and any("Moss-lined stone planters" in prompt for prompt in scenery)
+
+
+def test_sorter_bundle_preserves_authored_conduit_labels(tmp_path):
+    client=Mock(model="test")
+    client.complete.return_value=json.dumps({"level1":{"theme":{"title":"Reef relay","emitterLabel":"Tide mast",
+        "coreALabel":"Coral bass","coreBLabel":"Tide treble","sinkLabel":"Silt bed","lowColor":"#55aaee"}}})
+    args=client,"Signal-Sorter","Signal routing","Coral reef"
+    options=dict(root=tmp_path,log=tmp_path/"log",bundle={},raise_on_failure=True)
+    first=generate(*args,1,**options)
+    for path in [first,generate(*args,2,previous=first,**options)]:
+        config=json.loads(path.read_text())
+        assert config["theme"]["coreBLabel"]=="Tide treble" and config["theme"]["lowColor"]=="#55aaee"
+        assert config["environment"]["weather"]["type"]=="bubbles"
+        assert config["titleScreen"]["catchyTitle"]=="REEF RELAY"

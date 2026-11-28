@@ -21,7 +21,7 @@ frame.addEventListener('load', async () => {
 frame.src = url;
 ```
 
-The four Studio archetypes and the three additional standalone games share arcade_hud.js, narrator.js, and style.css. Signal-Sorter introduces clean and noisy labels using a single visible cue. Serve the arcade directory structure together. Use the config query parameter to select a saved activity; sprite paths resolve relative to that JSON. Hosts can also send LOAD_CONFIG and listen for GAME_EVENT from the iframe.
+The four Studio archetypes and the three additional standalone games share arcade_hud.js, narrator.js, and style.css. Signal-Sorter streams carrier waves through live switches, a filter and a ground sink. Later stages introduce a splitter, a vent and a frequency inverter. Serve the arcade directory structure together. Use the config query parameter to select a saved activity; sprite paths resolve relative to that JSON. Hosts can also send LOAD_CONFIG and listen for GAME_EVENT from the iframe.
 
 ## Adding a New Archetype
 

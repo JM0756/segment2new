@@ -13,7 +13,7 @@ const WorldEngine = (() => {
     }
     return rows.map(r=>r.join(''));
   }
-  function project(rows,physical,background=false,tier=1){
+  function project(rows,physical,background=false,tier=1,solidCount){
     const structures={...physical.structures},obstacles=[];
     // Older saves may contain dense walls. Retain at most two solid perimeter props.
     rows=rows.map(row=>Array.from(row));
@@ -42,7 +42,7 @@ const WorldEngine = (() => {
       if(!'.~'.includes(rows[y][x])||!safe(x,y))continue;
       if(background && rows.slice(Math.max(0,y-2),y+3).some(row=>row[x]==='#'))continue;
       rows[y][x]='#';
-      if(++placed>=(tier===null?Math.min(2,Math.max(1,cells.length)):tier===2?1:2))break;
+      if(++placed>=(solidCount??(tier===null?Math.min(2,Math.max(1,cells.length)):tier===2?1:2)))break;
     }
     rows=rows.map(r=>r.join(''));
     rows.forEach((row,y)=>Array.from(row).forEach((tile,x)=>{

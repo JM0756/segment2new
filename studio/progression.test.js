@@ -215,3 +215,19 @@ test('classifier hub accepts a one-star unlock and isolates generated game progr
   send({type:'ARCADE_SELECT',targetLevel:2});
   assert.equal(stage.src.searchParams.get('config'),second.levels[1]);
 });
+
+test('sorter starts at stage one and carries wave score through a one-star clear',async()=>{
+  const {get,listeners,context,item}=await mountStudio();
+  const game='Signal-Sorter',levels={1:'/generated/relay_L1.json',2:'/generated/relay_L2.json'};
+  context.sorter={...item,game,levels};
+  require('node:vm').runInContext('play(sorter,null,1)',context);
+  const stage=get('stage'),params=stage.src.searchParams;
+  assert.equal(params.get('mode'),'level');
+  assert.equal(params.get('level'),'1');
+  const send=type=>listeners.message({origin:'http://localhost:8000',source:stage.contentWindow,
+    data:{type,archetype:game,level:1,run:params.get('run'),passed:true,accuracy:65,stars:1,score:400,totalScore:400}});
+  send('ARCADE_PROGRESS');
+  send('ARCADE_NEXT');
+  assert.equal(stage.src.searchParams.get('config'),levels[2]);
+  assert.equal(stage.src.searchParams.get('priorScore'),'400');
+});

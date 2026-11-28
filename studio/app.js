@@ -1,6 +1,6 @@
 const $=id=>document.getElementById(id);
 const concepts={
-  'Signal-Sorter':['Training data quality','Signal Sorter','Accept clean samples and filter noisy labels at the Space Lab.'],
+  'Signal-Sorter':['Signal routing','Signal Sorter','Switch live conduits to route carriers, filter static, and protect both cores.'],
   'Feature-Classifier':['Overfitting','Feature Classifier','Train a classifier to see past misleading patterns.','#b7dc99','#374d58'],
   'Alert-Dial':['Thresholds','Alert Dial','Tune a checkpoint to catch incidents with fewer false alarms.','#ffb876','#684248'],
   'Claim-Inspector':['Fact-Checking','Claim Inspector','Compare incoming claims with the source evidence.','#c0b4ff','#524c76']
@@ -116,31 +116,32 @@ let passedRun=false,activeGameId;
 function closeChat(){
   $('stageChat').hidden=true;$('remixToggle').setAttribute('aria-expanded','false');
 }
-function play(item,file,requested,started=false){
+function play(item,file,requested,started=false,priorScore=0){
   active=item;closeChat();passedRun=false;
   const first=item.levels[1]||file;
   const paths=[item.preview_path||first,first,item.levels[2],item.levels[3]];
   const lastLevel=paths[2]?(paths[3]?3:2):1;
   activeGameId=ArcadeTutorial.gameId(first,location.origin);
-  const classifier=item.game==='Feature-Classifier';
-  unlocked=sessionUnlocks.get(classifier?activeGameId:item.game)||0;
-  if(!classifier||activeGameId===item.game){
+  const perGameProgress=['Feature-Classifier','Signal-Sorter'].includes(item.game);
+  unlocked=sessionUnlocks.get(perGameProgress?activeGameId:item.game)||0;
+  if(!perGameProgress||activeGameId===item.game){
     try{
       const stored=Number(localStorage.getItem('arcade-progress-v1/'+item.game));
       if([0,1,2,3].includes(stored))unlocked=Math.max(unlocked,stored);
     }catch{}
   }
-  if(classifier)unlocked=Math.max(unlocked,ArcadeProgress.unlocked(ArcadeProgress.read(activeGameId)));
+  if(perGameProgress)unlocked=Math.max(unlocked,ArcadeProgress.unlocked(ArcadeProgress.read(activeGameId)));
   const tutorialComplete=ArcadeTutorial.has(activeGameId);
   if(tutorialComplete)unlocked=Math.max(1,unlocked);
-  level=tutorialComplete?Progression.enter(Math.min(unlocked,lastLevel),requested||1):0;
+  level=tutorialComplete||item.game==='Signal-Sorter'?Progression.enter(Math.min(unlocked,lastLevel),requested||1):0;
   path=paths[level];runId=crypto.randomUUID();
   $('play').hidden=false;$('remixToggle').hidden=!Progression.canRemix(level,unlocked);
   if(Object.values(item.levels).includes(path))targetPath=path;
   const url=new URL('/arcade/'+item.game+'/source/index.html',location.origin);
   url.search=new URLSearchParams({config:path,mode:level?'level':'tutorial',level,lastLevel,game:item.game,gameId:activeGameId,run:runId});
-  if(classifier){
+  if(perGameProgress){
     if(started)url.searchParams.set('started','1');
+    if(item.game==='Signal-Sorter'&&Number.isSafeInteger(priorScore)&&priorScore>0)url.searchParams.set('priorScore',priorScore);
     url.searchParams.set('unlocked',Math.min(lastLevel,unlocked));
     url.searchParams.set('progress',JSON.stringify(ArcadeProgress.read(activeGameId)));
   }
@@ -153,25 +154,25 @@ window.addEventListener('message',e=>{
   const m=e.data;
   if(!active||e.origin!==location.origin||e.source!==$('stage').contentWindow||
       m?.run!==runId||m.archetype!==active.game||m.level!==level)return;
-  const classifier=active.game==='Feature-Classifier';
-  if(classifier&&m.type==='ARCADE_SELECT'){
+  const perGameProgress=['Feature-Classifier','Signal-Sorter'].includes(active.game);
+  if(m.type==='ARCADE_SELECT'){
     if(level>0&&Number.isInteger(m.targetLevel)&&m.targetLevel>=1&&m.targetLevel<=unlocked&&active.levels[m.targetLevel])
       play(active,null,m.targetLevel,true);
     return;
   }
   if(m.type==='ARCADE_NEXT'){
-    if(passedRun&&level<3)play(active,null,level+1,true);
+    if(passedRun&&level<3)play(active,null,level+1,true,m.totalScore);
     return;
   }
   if(m.type!=='ARCADE_PROGRESS')return;
-  passedRun=m.passed&&(level===0||m.accuracy>=75&&m.stars>=(classifier?1:2));
-  if(classifier&&level>0){
+  passedRun=m.passed&&(level===0||(active.game==='Signal-Sorter'||m.accuracy>=75)&&m.stars>=(perGameProgress?1:2));
+  if(perGameProgress&&level>0){
     ArcadeProgress.record(activeGameId,level,passedRun?m.stars:0,m.score??0);
     unlocked=Math.max(unlocked,ArcadeProgress.unlocked(ArcadeProgress.read(activeGameId)));
   }
   unlocked=Progression.complete(unlocked,level,m);
   if(level===0 && passedRun)ArcadeTutorial.finish(activeGameId);
-  sessionUnlocks.set(classifier?activeGameId:active.game,unlocked);
+  sessionUnlocks.set(perGameProgress?activeGameId:active.game,unlocked);
 });
 $('resumeLevel').onclick=()=>play(active,null,unlocked);
 let saveTimer;
@@ -180,10 +181,11 @@ $('saveProgress').onclick=()=>{
   const control=$('saveProgress');
   let status;
   try{
-    if(active.game==='Feature-Classifier'){
+    const perGame=['Feature-Classifier','Signal-Sorter'].includes(active.game);
+    if(perGame){
       localStorage.setItem('arcade_progress:'+activeGameId,JSON.stringify(ArcadeProgress.read(activeGameId)));
     }
-    if(active.game!=='Feature-Classifier'||activeGameId===active.game){
+    if(!perGame||activeGameId===active.game){
       localStorage.setItem('arcade-progress-v1/'+active.game,String(unlocked));
     }
     control.dataset.saved='true';
@@ -329,7 +331,10 @@ function shortcuts(e){
   const key=e.key.toLowerCase(),editing=e.target.matches('input,textarea,select,[contenteditable=true]');
   if(e.altKey&&key==='t'){e.preventDefault();choose(modes[(modes.indexOf(document.documentElement.dataset.theme)+1)%3]);}
   else if(e.altKey&&key==='h'){e.preventDefault();dismiss();home();}
-  else if(key==='escape'){e.preventDefault();if(!dismiss())$('theme').focus();}
+  else if(key==='escape'){
+    if(e.currentTarget===$('stage').contentDocument)return;
+    e.preventDefault();if(!dismiss())$('theme').focus();
+  }
   else if(((e.metaKey||e.ctrlKey)&&key==='k')||(key==='/'&&!editing)){
     e.preventDefault();dismiss();$('theme').focus();
   }

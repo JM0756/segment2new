@@ -1,13 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-global.correctSort=require('../game_logic').correctSort;
 const {createRound}=require('../game');
-for(const file of ['default','level2','level3'])test('sorts the '+file+' wave and records errors',()=>{
-  const cfg=require('../'+file+'.json'),round=createRound(cfg);
-  cfg.mechanics.samples.forEach((_,i)=>{
-    const sample=round.view().actors[0].sample;
-    assert.equal(round.view().subject,cfg.theme.options[sample]);
-    round.act(i===0?1-sample:sample);
-  });
-  assert.ok(round.view().done);
-  assert.deepEqual(round.view().score,[cfg.mechanics.samples.length-1,1]);
+for(const [i,file] of ['default','level2','level3'].entries())test('streams the '+file+' wave',()=>{
+  const round=createRound(require('../'+file+'.json'),i+1);
+  assert.equal(round.lookahead().length,2);
+  round.tick(1.1);assert.equal(round.state.pulses.length,1);
+  assert.equal(Boolean(round.state.points.INV),i===2);
+  for(let j=0;j<3000&&!round.state.done;j++)round.tick(.1);
+  assert.ok(round.state.done);
 });

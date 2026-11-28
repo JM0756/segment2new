@@ -574,6 +574,18 @@ def classifier_presentation(config, request, previous):
     title = dict(catchyTitle=" ".join(words).upper(), divisionBadge=badge.upper(),
                  tagline=f"Track the {theme.get('featureLabels',{}).get(core,'reliable signal')} and train your classifier to see through the disguise.",
                  fontStyle=font, artStyle=art)
+    if config.get("archetype") == "sorter":
+        title["tagline"] = "Route the carriers and ground the interference."
+        location = room.get("setting_name") or theme.get("title") or "Signal"
+        conduit_defaults = {
+            "emitterLabel": f"{location} Emitter", "coreALabel": f"{location} Alpha",
+            "coreBLabel": f"{location} Beta", "sinkLabel": "Static Ground",
+            "lowLabel": "Low / Sine", "highLabel": "High / Twin",
+            "lowColor": palette.get("team0", "#56e1cc"), "highColor": palette.get("team1", "#ffa86c"),
+        }
+        prior_theme = (previous or {}).get("theme", {})
+        for field, value in conduit_defaults.items():
+            theme.setdefault(field, prior_theme.get(field, value))
     for key, defaults in (("environment", environment), ("titleScreen", title)):
         inherited = (previous or {}).get(key, {})
         supplied = config.get(key, {})
@@ -735,7 +747,7 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
     if bundle is not None and not previous:
         messages[0]["content"] = "Return one compact JSON level bundle. Apply the requested setting and respect the supplied schema for all overridden fields."
         messages.append({"role": "user", "content": f"Produce all tiers in ONE JSON object. Write level{level} first, "
-                         'then the other level keys (level1, level2, level3). Each value may patch theme, world_physics and tilemap. Use visual_keys for shared classifier presentation. For physical edits return only world_physics patches. '
+                         'then the other level keys (level1, level2, level3). Each value may patch theme, world_physics and tilemap. When visual_keys are supplied, include environment and titleScreen patches. For physical edits return only world_physics patches. '
                          'Include only changed fields. Tier-specific mechanics and missing theme fields '
                          'come from validated templates. Use distinct environments. Stay under 1400 tokens.'})
     fallback_reason = None
@@ -886,8 +898,8 @@ def generate(client, archetype, topic, theme, level, *, previous=None, root=ROOT
                     annotate_classifier_cases(config["mechanics"])
                 except (KeyError, TypeError, AttributeError, IndexError):
                     pass  # The validator reports incomplete structures in the repair prompt.
-            if archetype == "Feature-Classifier" and isinstance(config, dict):
-                if isinstance(config.get("theme"), dict):
+            if archetype in ("Feature-Classifier", "Signal-Sorter") and isinstance(config, dict):
+                if archetype == "Feature-Classifier" and isinstance(config.get("theme"), dict):
                     compact_classifier_cues(config["theme"])
                 classifier_presentation(config, instruction or f"{topic} {theme}", previous_config)
             rows = config.pop("tilemap",None) if isinstance(config,dict) else None

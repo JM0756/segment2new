@@ -14,22 +14,22 @@
   },
   "theme": {
     "title": "Space Lab · Signal Sorter",
-    "setting": "In the Dockside Sample Intake, inspect each core before adding it to the training set.",
+    "setting": "Route the live carrier stream through the Dockside Sample Intake conduits.",
     "accent": "#71e6e2",
-    "tutorial": "Accept a solid core. Filter a cracked core before it enters the training set.",
-    "practice": "Practice selecting an item below.",
-    "begin": "Begin round",
+    "tutorial": "Walk beside a junction and press E or Space to change its route.",
+    "practice": "Follow a carrier from the emitter to its core.",
+    "begin": "Start wave",
     "skip": "Skip tutorial",
     "guide": "How to play",
     "check": "Check result",
     "again": "Play again",
-    "success": "Goal reached.",
-    "failure": "Try a different selection.",
+    "success": "Wave cleared.",
+    "failure": "Core overloaded.",
     "hintLabel": "Hint",
-    "hint": "A whole diamond carries a reliable label. A broken diamond adds noise.",
+    "hint": "Set splitter C before the next packet arrives. Toggle the floor vent to clear your path.",
     "options": [
-      "Intact core",
-      "Cracked core"
+      "Low carrier",
+      "High carrier"
     ],
     "environment": {
       "setting_name": "Dockside Sample Intake",

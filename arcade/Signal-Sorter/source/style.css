@@ -1,1 +1,4 @@
 @import url("../../style.css");
+.telemetry progress{width:3em;height:.6em;margin-right:.4em;accent-color:#64d7be}
+.telemetry progress[id^=heat]{accent-color:#ff8877}
+.task canvas{vertical-align:middle;background:#112b31;border-radius:.25em}

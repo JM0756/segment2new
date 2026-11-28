@@ -61,7 +61,8 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       }
       const search = configPath === 'default.json' ? '' : '?config='+encodeURIComponent(configPath)+'&level=2';
       let requested;
-      document.getElementById=key=>{const el=document.querySelector(key);el.context=drawing;return el;};
+      const elementIds=new Set(Array.from(fs.readFileSync(path+'index.html','utf8').matchAll(/\bid="([^"]+)"/g),match=>match[1]));
+      document.getElementById=key=>{if(!elementIds.has(key))return null;const el=document.querySelector(key);el.context=drawing;return el;};
       let frame;
       const context=vm.createContext({location:{search},performance,requestAnimationFrame(fn){frame=fn;},document,parent,URLSearchParams,URL,Image,setTimeout,clearTimeout,
         window:{devicePixelRatio:2,location:{search,href:'http://localhost/arcade/'+dir+'/source/index.html'+search},addEventListener:(type,fn)=>{if(type==='message')receive=fn;if(type==='keydown')keyDown=fn;if(type==='keyup')keyUp=fn;}},
@@ -70,7 +71,7 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       for(const file of ['../../tutorial.js','../../shuffle.js','game_logic.js','../../environment.js','sprites.js','../../field_cases.js','game.js','../../world_engine.js','../../world.js','../../animation.js','../../narrator.js','../../arcade_hud.js']) vm.runInContext(fs.readFileSync(path+file,'utf8'),context);
       await new Promise(resolve=>setImmediate(resolve));
       assert.equal(requested,configPath);
-      assert.equal(elements.get('title').textContent,config.theme.title);
+      assert.equal(elements.get('title').textContent,config.theme.title+(dir==='Signal-Sorter'?' · Stage '+(configPath==='default.json'?1:2):''));
       if (configPath === 'default.json') {
         assert.deepEqual(imageURLs,[]);
 
@@ -109,6 +110,20 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
       }
       const read=code=>vm.runInContext(code,context);
       const press=(key,code=key)=>keyDown({key,code,preventDefault(){},target:{matches:()=>false}});
+      if(dir==='Signal-Sorter'){
+        assert.equal(read('startScreen.hidden'),false);
+        read('startScreen.children[0].children[4].onclick()');
+        const time=performance.now();frame(time+50);
+        const elapsed=read('round.state.time');
+        press('Escape');frame(time+5000);assert.equal(read('round.state.time'),elapsed);
+        assert.ok(read('pauseMenu.open'));press('Escape');assert.equal(read('pauseMenu.open'),false);
+        frame(time+5100);assert.ok(read('round.state.time')>elapsed);
+        for(const win of [false,true]){
+          read('Object.assign(round.state,{done:true,stars:'+Number(win)+'});render()');
+          assert.match(read('cleared.children[0].textContent'),win?/CLEARED/:/OVERLOAD/);
+        }
+        return;
+      }
       if(config.titleScreen){
         const intro=read('startScreen'),panel=intro.children[0];
         assert.equal(intro.hidden,false);
@@ -142,6 +157,12 @@ for(const dir of fs.readdirSync(base).filter(name=>fs.existsSync(base+'/'+name+'
         }
         intro.children[0].children[4].onclick();
       }else assert.equal(read('startScreen.hidden'),true);
+      press('Escape');
+      assert.ok(read('pauseMenu.open'));
+      assert.deepEqual(Array.from(read('pauseMenu.children.slice(2)'),b=>b.textContent),
+        ['RESUME','SFX: OFF','MUSIC: OFF','TRY LEVEL AGAIN','HOW TO PLAY','QUIT TO MENU']);
+      press('Escape');
+      assert.equal(read('pauseMenu.open'),false);
       const actions=elements.get('actions');
       assert.ok(actions.children.every(b=>!/^\[[12]\]/.test(b.textContent)));
       assert.match(actions.children[0].textContent,/Move/);

@@ -218,6 +218,38 @@
         "backgroundImage": {
           "type": "string",
           "minLength": 1
+        },
+        "emitterLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coreALabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coreBLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sinkLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lowLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "highLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lowColor": {
+          "type": "string",
+          "pattern": "^#[a-fA-F0-9]{6}$"
+        },
+        "highColor": {
+          "type": "string",
+          "pattern": "^#[a-fA-F0-9]{6}$"
         }
       },
       "required": [
@@ -250,6 +282,383 @@
         "type": "string",
         "pattern": "^[.#?~LRS]{20}$"
       }
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "weather": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/visual"
+            },
+            "intensity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "angle": {
+              "type": "number"
+            },
+            "tint": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "shape": {
+              "type": "string",
+              "minLength": 1
+            },
+            "vx": {
+              "type": "number",
+              "minimum": -500,
+              "maximum": 500
+            },
+            "vy": {
+              "type": "number",
+              "minimum": -500,
+              "maximum": 500
+            },
+            "size": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 64
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 150
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "glow": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "pulseHz": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          },
+          "required": [
+            "type",
+            "intensity",
+            "angle",
+            "tint"
+          ],
+          "additionalProperties": false
+        },
+        "particles": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/visual"
+            },
+            "density": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "tint": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "shape": {
+              "type": "string",
+              "minLength": 1
+            },
+            "vx": {
+              "type": "number",
+              "minimum": -500,
+              "maximum": 500
+            },
+            "vy": {
+              "type": "number",
+              "minimum": -500,
+              "maximum": 500
+            },
+            "size": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 64
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 150
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "glow": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "pulseHz": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          },
+          "required": [
+            "type",
+            "density",
+            "tint"
+          ],
+          "additionalProperties": false
+        },
+        "platform": {
+          "type": "object",
+          "properties": {
+            "material": {
+              "$ref": "#/$defs/visual"
+            },
+            "borderStyle": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sceneryLayout": {
+              "enum": [
+                "compact",
+                "balanced",
+                "panoramic"
+              ]
+            },
+            "deckFill": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "gridLine": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "borderAccent": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "bayLeftAccent": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "bayRightAccent": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "groutColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          },
+          "required": [
+            "material",
+            "borderStyle",
+            "sceneryLayout",
+            "deckFill",
+            "borderAccent",
+            "bayLeftAccent",
+            "bayRightAccent"
+          ],
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "gridLine"
+              ]
+            },
+            {
+              "required": [
+                "groutColor"
+              ]
+            }
+          ]
+        },
+        "particleConfig": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/visual"
+            },
+            "density": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "tint": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "shape": {
+              "type": "string",
+              "minLength": 1
+            },
+            "vx": {
+              "type": "number",
+              "minimum": -500,
+              "maximum": 500
+            },
+            "vy": {
+              "type": "number",
+              "minimum": -500,
+              "maximum": 500
+            },
+            "size": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 64
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 150
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "glow": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "pulseHz": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "visualPrompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "primaryColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accentColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "weather",
+        "particles",
+        "platform"
+      ],
+      "additionalProperties": false
+    },
+    "titleScreen": {
+      "type": "object",
+      "properties": {
+        "catchyTitle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "divisionBadge": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tagline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fontStyle": {
+          "enum": [
+            "pixel_arcade",
+            "noir_serif",
+            "cyber_mono",
+            "field_stencil",
+            "storybook_bold"
+          ]
+        },
+        "artStyle": {
+          "enum": [
+            "noir_brass",
+            "abyssal_neon",
+            "alpine_console",
+            "botanical_parchment",
+            "industrial_steel"
+          ]
+        }
+      },
+      "required": [
+        "catchyTitle",
+        "divisionBadge",
+        "tagline",
+        "fontStyle",
+        "artStyle"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

@@ -11,7 +11,7 @@ SCHEMA["properties"]["world_physics"] = json.loads((HERE.parents[1] / "world_phy
 def validate(config):
     errors = [err.message for err in Draft202012Validator(SCHEMA).iter_errors(config)]
     if not errors and set(config["mechanics"]["samples"]) != {0, 1}:
-        errors.append("Include both clean and noisy samples.")
+        errors.append("Include both low and high carrier bands.")
     return errors
 
 if __name__ == "__main__":
